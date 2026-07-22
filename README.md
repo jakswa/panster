@@ -46,7 +46,7 @@ The current song's source MP3 remains in its owner's tab. The Fly/Hono server re
 
 At each song boundary, the next entry's owner becomes the broadcaster. Consecutive songs from the same owner reuse the existing media connections. The room creator holds a private moderation capability but is not permanent media infrastructure and may leave without ending playback.
 
-See [`docs/`](docs/README.md) for the product model, state machine, failure policy, and implementation direction.
+See [`docs/`](docs/README.md) for the product model, state machine, failure policy, and the planned [device-local crate and playlist system](docs/local-crate-and-playlists.md).
 
 ## Hosting
 
@@ -92,7 +92,7 @@ bun run build       # typecheck, tests, and production build
 - Mobile/background tab suspension is not yet handled reliably.
 - Nearby listener devices are not synchronized speakers.
 
-PostgreSQL, durable libraries, album artwork, reactions, voting, AI sequencing, and richer transitions remain out of scope until the shared queue is solid with real rooms.
+PostgreSQL, server-hosted libraries, album artwork, reactions, voting, AI sequencing, and richer transitions remain out of scope until the shared queue is solid with real rooms. An optional OPFS-backed local crate with rich playlists and portable exports is planned without changing Panster's no-upload model.
 
 ## License
 

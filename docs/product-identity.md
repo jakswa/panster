@@ -102,7 +102,7 @@ The first shared-queue release does not attempt:
 - Crowd-controlled mixing
 - Synchronized playback across nearby speakers
 - Permanent music uploads
-- Accounts or durable personal libraries
+- Accounts or server-hosted personal libraries
 - Recovery of a song after its broadcaster disappears
 - Multiple Fly.io application instances
 - TURN fallback
@@ -112,6 +112,8 @@ These may be built later only if the shared queue is reliable and enjoyable.
 
 ## Future extensions that fit the identity
 
+- An optional device-local crate with OPFS-backed tracks and multiple playlists
+- Portable playlist and crate exports, followed later by user-approved device transfer
 - Reactions and lightweight voting
 - Configurable queue fairness
 - An Auto-DJ participant that fills an empty queue

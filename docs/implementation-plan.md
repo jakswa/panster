@@ -6,6 +6,8 @@ Replace the permanent creator-host topology with a server-authoritative shared q
 
 Keep each phase testable with real browsers. Do not add crossfading, PostgreSQL, AI, or multi-machine support during this plan.
 
+The next substantial product track is the optional device-local crate and playlist system described in [Local crate and playlists](local-crate-and-playlists.md). It preserves one-time file selection as the universal fallback while adding OPFS storage, IndexedDB catalog state, multiple reference-based playlists, import/export, and later device-transfer preparation.
+
 ## Phase 1: room participants and metadata queue — implemented
 
 Build the social and state layer before changing the working media plane.
@@ -102,6 +104,19 @@ Only after the single-machine shared queue works:
 - Decide whether more than one Fly machine is necessary.
 - Introduce PostgreSQL or another shared coordinator only for demonstrated needs.
 - Remember that persisted metadata cannot restore local source files after every participant disconnects.
+
+## Local crate delivery track
+
+After the rotating media path is reliable enough to build on:
+
+1. Add storage capability, quota, and persistence UX without weakening one-time selection.
+2. Build the OPFS media repository and IndexedDB catalog with atomic imports.
+3. Add rich crate search, sorting, metadata editing, and queue-from-crate.
+4. Add multiple playlists whose entries reference one deduplicated media object.
+5. Add versioned manifests, portable playlist bundles, and full crate backup.
+6. Treat direct browser-to-browser migration and durable sync as later stretch work.
+
+Crate work must not change the room's server-authoritative queue, upload MP3s to Panster, or make storage permission a condition of participation.
 
 ## Migration notes
 

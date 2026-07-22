@@ -14,6 +14,7 @@ There is no permanent media host. The room creator is a moderator, not infrastru
 - [Room state machine](room-state-machine.md) — server-authoritative queue and playback lifecycle
 - [Rotating media topology](rotating-media-topology.md) — WebRTC connections and broadcaster handoff
 - [Failure and recovery](failure-and-recovery.md) — expected behavior when browsers and networks fail
+- [Local crate and playlists](local-crate-and-playlists.md) — OPFS storage, rich playlist management, portability, and graceful fallback
 - [Implementation plan](implementation-plan.md) — incremental work and acceptance criteria
 
 ## Status
