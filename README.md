@@ -46,7 +46,7 @@ The current song's source MP3 remains in its owner's tab. The Fly/Hono server re
 
 At each song boundary, the next entry's owner becomes the broadcaster. Consecutive songs from the same owner reuse the existing media connections. The room creator holds a private moderation capability but is not permanent media infrastructure and may leave without ending playback.
 
-See [`docs/`](docs/README.md) for the product model, state machine, failure policy, and the planned [device-local crate and playlist system](docs/local-crate-and-playlists.md).
+See the [`docs/` kanban](docs/README.md) for active product work, archived decisions, and the planned [device-local crate and playlist system](docs/kanban/008_TODO_local_crate_and_playlists.md).
 
 ## Hosting
 

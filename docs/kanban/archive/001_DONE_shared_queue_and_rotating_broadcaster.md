@@ -1,4 +1,8 @@
-# Implementation plan
+# Build the shared queue and rotating broadcaster
+
+- **Status:** DONE
+- **Type:** Epic
+- **Depends on:** None
 
 ## Goal
 
@@ -6,7 +10,7 @@ Replace the permanent creator-host topology with a server-authoritative shared q
 
 Keep each phase testable with real browsers. Do not add crossfading, PostgreSQL, AI, or multi-machine support during this plan.
 
-The next substantial product track is the optional device-local crate and playlist system described in [Local crate and playlists](local-crate-and-playlists.md). It preserves one-time file selection as the universal fallback while adding OPFS storage, IndexedDB catalog state, multiple reference-based playlists, import/export, and later device-transfer preparation.
+The next substantial product track is the optional device-local crate and playlist system described in [Local crate and playlists](../008_TODO_local_crate_and_playlists.md). It preserves one-time file selection as the universal fallback while adding OPFS storage, IndexedDB catalog state, multiple reference-based playlists, import/export, and later device-transfer preparation.
 
 ## Phase 1: room participants and metadata queue — implemented
 
@@ -77,46 +81,14 @@ A queues song A, B queues song B, and C listens. A broadcasts to B and C. At the
 
 A creates the room; B and C enqueue tracks. While B is playing, A closes their browser. B finishes and C starts. If B closes mid-song, C is promoted without recreating the room.
 
-## Phase 4: reliability and diagnostics — in progress
+## Follow-up work
 
-### Work
-
-- Preserve ICE path, bitrate, RTT, and timeout diagnostics across rotating peers.
-- Add connection counts for the active broadcaster.
-- Exercise Chrome, Firefox, and mobile Safari where available.
-- Test home Wi-Fi, separate residential networks, and mobile data.
-- Run repeated queue boundaries and a 30-minute room.
-- Record how often direct STUN-only connectivity fails before deciding on TURN.
-
-### Acceptance
-
-- Three or more participants complete ten queue transitions.
-- Queue state remains consistent after joins and leaves.
-- A single listener failure does not stop the room.
-- Error messages identify whose song failed and what Panster did next.
-- No tab grows memory without bound across repeated songs.
-
-## Phase 5: deployment-state decision — deferred
-
-Only after the single-machine shared queue works:
-
-- Decide whether Fly restarts must preserve room identity.
-- Decide whether more than one Fly machine is necessary.
-- Introduce PostgreSQL or another shared coordinator only for demonstrated needs.
-- Remember that persisted metadata cannot restore local source files after every participant disconnects.
+- [Prove reliability and improve diagnostics](../006_TODO_reliability_and_diagnostics.md)
+- [Decide the deployment-state boundary](../009_TODO_deployment_state_decision.md)
 
 ## Local crate delivery track
 
-After the rotating media path is reliable enough to build on:
-
-1. Add storage capability, quota, and persistence UX without weakening one-time selection.
-2. Build the OPFS media repository and IndexedDB catalog with atomic imports.
-3. Add rich crate search, sorting, metadata editing, and queue-from-crate.
-4. Add multiple playlists whose entries reference one deduplicated media object.
-5. Add versioned manifests, portable playlist bundles, and full crate backup.
-6. Treat direct browser-to-browser migration and durable sync as later stretch work.
-
-Crate work must not change the room's server-authoritative queue, upload MP3s to Panster, or make storage permission a condition of participation.
+The follow-up [local crate and playlists epic](../008_TODO_local_crate_and_playlists.md) owns this work. Crate work must not change the room's server-authoritative queue, upload MP3s to Panster, or make storage permission a condition of participation.
 
 ## Migration notes
 

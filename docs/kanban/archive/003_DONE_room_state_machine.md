@@ -1,5 +1,9 @@
 # Room state machine
 
+- **Status:** DONE
+- **Type:** Epic
+- **Depends on:** [001](001_DONE_shared_queue_and_rotating_broadcaster.md)
+
 The Bun server owns queue order and playback authority. Browsers own files, decoding, and media transport.
 
 ## Conceptual state

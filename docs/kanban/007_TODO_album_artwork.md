@@ -1,5 +1,9 @@
 # Album artwork
 
+- **Status:** TODO
+- **Type:** Epic
+- **Depends on:** [006](006_TODO_reliability_and_diagnostics.md) for production rollout; embedded-cover work may proceed independently
+
 ## Product decision
 
 Panster should automatically show and share album artwork for a queued song when artwork is available.

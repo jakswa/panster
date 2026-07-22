@@ -1,5 +1,9 @@
 # Local crate and playlists
 
+- **Status:** TODO
+- **Type:** Epic
+- **Depends on:** [006](006_TODO_reliability_and_diagnostics.md)
+
 ## Product promise
 
 Panster should let someone choose music once, organize it richly, and queue it in future rooms without repeatedly reopening the file picker.

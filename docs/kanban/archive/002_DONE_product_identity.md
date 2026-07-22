@@ -1,5 +1,9 @@
 # Product identity
 
+- **Status:** DONE
+- **Type:** Epic
+- **Depends on:** None
+
 ## One-sentence promise
 
 Panster is a small peer-to-peer listening room where friends add local MP3s to one shared queue. When a song reaches the front, its owner's browser broadcasts it directly to the room.
@@ -74,7 +78,7 @@ Before enqueueing, let the user edit title and artist. Treat all metadata as unt
 
 ### Artwork
 
-Album artwork is planned as automatically shared room presentation. Prefer an embedded ID3 cover, then a conservative MusicBrainz and Cover Art Archive lookup, and finally a stable generated placeholder. Normalize every real cover to a small bounded derivative before sending it through ephemeral room state; MP3 bytes and original embedded images remain off the server. See [Album artwork](album-artwork.md) for extraction, transport, lookup, and safety details.
+Album artwork is planned as automatically shared room presentation. Prefer an embedded ID3 cover, then a conservative MusicBrainz and Cover Art Archive lookup, and finally a stable generated placeholder. Normalize every real cover to a small bounded derivative before sending it through ephemeral room state; MP3 bytes and original embedded images remain off the server. See [Album artwork](../007_TODO_album_artwork.md) for extraction, transport, lookup, and safety details.
 
 ## Roles
 

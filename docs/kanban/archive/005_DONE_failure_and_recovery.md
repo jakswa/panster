@@ -1,5 +1,9 @@
 # Failure and recovery
 
+- **Status:** DONE
+- **Type:** Epic
+- **Depends on:** [001](001_DONE_shared_queue_and_rotating_broadcaster.md)
+
 The first queue release favors understandable recovery over seamless recovery.
 
 | Failure | Expected behavior |

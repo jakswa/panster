@@ -1,23 +1,12 @@
-# Panster planning
+# Panster docs
 
-These documents describe Panster's shared-queue direction.
+Planning lives in the [kanban board](kanban/README.md). Each active Markdown file is a ticket or epic whose filename exposes its stable ID and current status.
 
-## Core decision
+## Active work
 
-Panster is a small peer-to-peer listening room where friends add local MP3s to one shared queue. When a song reaches the front, its owner's browser broadcasts it directly to everyone else.
+- [`006_TODO_reliability_and_diagnostics`](kanban/006_TODO_reliability_and_diagnostics.md) — prove the shared queue across browsers and real networks
+- [`007_TODO_album_artwork`](kanban/007_TODO_album_artwork.md) — extract, normalize, and share album covers
+- [`008_TODO_local_crate_and_playlists`](kanban/008_TODO_local_crate_and_playlists.md) — add private device-local storage and playlists
+- [`009_TODO_deployment_state_decision`](kanban/009_TODO_deployment_state_decision.md) — decide whether demonstrated needs justify durable or distributed room state
 
-There is no permanent media host. The room creator is a moderator, not infrastructure. Songs have clear starts and ends; transitions are hard handoffs with no crossfade in the first implementation.
-
-## Documents
-
-- [Product identity](product-identity.md) — promise, user experience, scope, and metadata presentation
-- [Album artwork](album-artwork.md) — embedded cover extraction, automatic room sharing, and open lookup fallback
-- [Room state machine](room-state-machine.md) — server-authoritative queue and playback lifecycle
-- [Rotating media topology](rotating-media-topology.md) — WebRTC connections and broadcaster handoff
-- [Failure and recovery](failure-and-recovery.md) — expected behavior when browsers and networks fail
-- [Local crate and playlists](local-crate-and-playlists.md) — OPFS storage, rich playlist management, portability, and graceful fallback
-- [Implementation plan](implementation-plan.md) — incremental work and acceptance criteria
-
-## Status
-
-The initial shared-queue experience is implemented: client-side metadata, one waiting song per participant, rotating WebRTC broadcasters, hard handoffs, playback epochs, owner-independent rooms, and failure timeouts. Reliability work across more browsers and real networks remains ongoing.
+Completed and rejected work is intentionally kept out of the active board in [`kanban/archive/`](kanban/archive/).

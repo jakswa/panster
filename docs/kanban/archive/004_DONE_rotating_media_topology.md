@@ -1,5 +1,9 @@
 # Rotating media topology
 
+- **Status:** DONE
+- **Type:** Epic
+- **Depends on:** [001](001_DONE_shared_queue_and_rotating_broadcaster.md)
+
 ## Principle
 
 The participant who owns the current queue entry is the temporary media hub. The room creator and Fly.io server are not permanent media hubs.
