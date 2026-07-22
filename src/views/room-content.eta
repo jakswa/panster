@@ -1,0 +1,80 @@
+<section id="room" class="grid gap-6" data-room-id="<%= it.roomId %>" data-role="<%= it.role %>" data-dj-token="<%= it.djToken %>">
+  <header class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-700 pb-5">
+    <div>
+      <a class="text-sm text-slate-400 hover:text-white" href="/">← Panster</a>
+      <h1 class="mt-2 text-3xl font-black text-white">Room <span class="font-mono text-fuchsia-400"><%= it.roomId %></span></h1>
+      <p class="mt-1 text-slate-400">Role: <strong class="text-slate-200"><%= it.role %></strong></p>
+    </div>
+    <div class="flex gap-2">
+      <span class="rounded border border-slate-600 px-3 py-2 font-mono text-sm" id="connection-state">offline</span>
+      <% if (it.role === 'dj') { %>
+        <button class="cursor-pointer rounded border border-slate-600 px-3 py-2 text-sm font-bold hover:bg-slate-800" id="copy-invite" type="button">Copy guest link</button>
+      <% } %>
+    </div>
+  </header>
+
+  <section class="grid grid-cols-2 gap-3 rounded border border-slate-700 bg-slate-900 p-4 text-sm max-[720px]:grid-cols-1" aria-label="WebRTC diagnostics">
+    <div>
+      <div class="font-bold text-slate-400">Selected ICE path</div>
+      <div class="mt-1 font-mono" id="ice-summary">Not connected</div>
+    </div>
+    <div>
+      <div class="font-bold text-slate-400">Media</div>
+      <div class="mt-1 font-mono" id="media-summary">Waiting for samples</div>
+    </div>
+    <p class="col-span-2 hidden rounded border border-amber-700 bg-amber-950 p-3 text-amber-200 max-[720px]:col-span-1" id="connection-help">
+      A direct WebRTC connection could not be established. Reload both peers and try another network. If this repeats on mobile, corporate Wi-Fi, or strict NAT, this path probably needs TURN.
+    </p>
+  </section>
+
+  <% if (it.role === 'dj') { %>
+    <section class="grid gap-5" aria-labelledby="dj-heading">
+      <div class="flex flex-wrap items-center gap-3">
+        <button class="cursor-pointer rounded bg-fuchsia-500 px-4 py-2 font-bold text-slate-950 hover:bg-fuchsia-400" id="start-engine" type="button">Start DJ engine</button>
+        <label class="flex items-center gap-2 text-sm"><input id="monitor-output" type="checkbox" checked> Local monitor</label>
+        <span class="text-sm text-slate-400" id="engine-state">Audio is stopped</span>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 max-[720px]:grid-cols-1">
+        <% for (const deck of ['A', 'B']) { %>
+          <article class="rounded border border-slate-700 bg-slate-900 p-4">
+            <h2 class="text-xl font-black">Deck <%= deck %></h2>
+            <p class="mt-2 min-h-12 break-all text-sm text-slate-400" id="deck-<%= deck.toLowerCase() %>-name">Empty</p>
+            <input class="mt-3 block w-full text-sm" id="deck-<%= deck.toLowerCase() %>-file" type="file" accept="audio/mpeg,.mp3">
+            <div class="mt-4 flex gap-2">
+              <button class="cursor-pointer rounded bg-slate-100 px-3 py-2 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40" id="deck-<%= deck.toLowerCase() %>-play" type="button" disabled>Play</button>
+              <button class="cursor-pointer rounded border border-slate-600 px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-40" id="deck-<%= deck.toLowerCase() %>-stop" type="button" disabled>Stop</button>
+            </div>
+          </article>
+        <% } %>
+      </div>
+
+      <label class="grid gap-2 rounded border border-slate-700 bg-slate-900 p-4">
+        <span class="flex justify-between font-bold"><span>Deck A</span><span>Crossfader</span><span>Deck B</span></span>
+        <input id="crossfader" type="range" min="-1" max="1" value="-1" step="0.01">
+      </label>
+    </section>
+  <% } else { %>
+    <section class="grid max-w-2xl gap-5" aria-labelledby="guest-heading">
+      <div>
+        <h2 class="text-2xl font-black" id="guest-heading">Contribute a track</h2>
+        <p class="mt-1 text-slate-400">The MP3 goes directly to the DJ over a WebRTC data channel.</p>
+      </div>
+      <input class="block w-full text-sm" id="guest-file" type="file" accept="audio/mpeg,.mp3">
+      <button class="w-fit cursor-pointer rounded bg-fuchsia-500 px-4 py-2 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40" id="send-track" type="button" disabled>Send to DJ</button>
+      <progress class="h-3 w-full" id="transfer-progress" max="1" value="0"></progress>
+      <p class="text-sm text-slate-400" id="transfer-state">Waiting for the DJ data channel.</p>
+
+      <div class="border-t border-slate-700 pt-5">
+        <h2 class="mb-3 text-xl font-black">Live mix</h2>
+        <audio class="w-full" id="live-audio" controls autoplay></audio>
+        <p class="mt-2 text-sm text-slate-400">Press play if your browser blocks autoplay.</p>
+      </div>
+    </section>
+  <% } %>
+
+  <details class="border-t border-slate-700 pt-4">
+    <summary class="cursor-pointer font-bold">Connection log</summary>
+    <pre class="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-black p-3 font-mono text-xs text-emerald-400" id="log"></pre>
+  </details>
+</section>

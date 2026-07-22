@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title><%= it.title %></title>
+    <link rel="icon" href="/assets/<%= it.assetVersion %>/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/<%= it.assetVersion %>/app.css">
+    <% if (it.script) { %><script src="/assets/<%= it.assetVersion %>/<%= it.script %>" defer></script><% } %>
+  </head>
+  <body class="min-h-screen bg-slate-950 font-body text-slate-100 antialiased">
+    <main class="mx-auto max-w-5xl px-4 py-8">
+      <%~ it.body %>
+    </main>
+  </body>
+</html>
