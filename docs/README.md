@@ -11,6 +11,7 @@ There is no permanent media host. The room creator is a moderator, not infrastru
 ## Documents
 
 - [Product identity](product-identity.md) — promise, user experience, scope, and metadata presentation
+- [Album artwork](album-artwork.md) — embedded cover extraction, automatic room sharing, and open lookup fallback
 - [Room state machine](room-state-machine.md) — server-authoritative queue and playback lifecycle
 - [Rotating media topology](rotating-media-topology.md) — WebRTC connections and broadcaster handoff
 - [Failure and recovery](failure-and-recovery.md) — expected behavior when browsers and networks fail

@@ -74,7 +74,7 @@ Before enqueueing, let the user edit title and artist. Treat all metadata as unt
 
 ### Artwork
 
-Album artwork is deferred. Sending embedded artwork to every participant adds payload, validation, and privacy complexity. The initial UI can generate a stable color or simple record icon from the queue-entry ID.
+Album artwork is planned as automatically shared room presentation. Prefer an embedded ID3 cover, then a conservative MusicBrainz and Cover Art Archive lookup, and finally a stable generated placeholder. Normalize every real cover to a small bounded derivative before sending it through ephemeral room state; MP3 bytes and original embedded images remain off the server. See [Album artwork](album-artwork.md) for extraction, transport, lookup, and safety details.
 
 ## Roles
 
@@ -119,5 +119,5 @@ These may be built later only if the shared queue is reliable and enjoyable.
 - An Auto-DJ participant that fills an empty queue
 - Audience requests
 - Durable room history
-- Rich metadata and artwork
+- Rich metadata beyond the planned album-artwork path
 - Optional transitions between already-reliable queue entries
