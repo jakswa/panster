@@ -16,6 +16,7 @@
   let audioContext
   let broadcastOutput
   let mediaDestination
+  let audioUnlockDestination
   let pendingTrack = null
   let preparingEpoch = null
   let preparedTrack = null
@@ -28,6 +29,8 @@
   const iceSummary = $('#ice-summary')
   const mediaSummary = $('#media-summary')
   const connectionHelp = $('#connection-help')
+  const remoteAudio = $('#remote-audio')
+  const resumeAudioButton = $('#resume-audio')
 
   function log(message) {
     const time = new Date().toLocaleTimeString()
@@ -59,10 +62,13 @@
       const AudioContextClass = window.AudioContext || window.webkitAudioContext
       audioContext = new AudioContextClass({ latencyHint: 'playback', sampleRate: 48_000 })
       mediaDestination = audioContext.createMediaStreamDestination()
+      audioUnlockDestination = audioContext.createMediaStreamDestination()
       broadcastOutput = audioContext.createDynamicsCompressor()
       broadcastOutput.connect(mediaDestination)
       broadcastOutput.connect(audioContext.destination)
+      remoteAudio.srcObject = audioUnlockDestination.stream
       await audioContext.resume()
+      await remoteAudio.play()
 
       displayName = name
       try { localStorage.setItem('panster-display-name', name) } catch {}
@@ -214,7 +220,7 @@
       offered: false,
       pendingCandidates: [],
       connectionTimer: null,
-      remoteSource: null,
+      remoteStream: null,
       lastSample: null,
       iceText: 'Checking…',
       mediaText: 'Waiting for samples',
@@ -252,12 +258,17 @@
       offerToListener(peer).catch((error) => log(`Offer failed: ${error.message}`))
     } else {
       pc.addEventListener('track', (event) => {
-        if (peer.remoteSource) peer.remoteSource.disconnect()
         const stream = event.streams[0] || new MediaStream([event.track])
-        peer.remoteSource = audioContext.createMediaStreamSource(stream)
-        peer.remoteSource.connect(audioContext.destination)
-        audioContext.resume().catch(() => {})
-        log(`Receiving live audio from ${nameFor(remoteId)}`)
+        peer.remoteStream = stream
+        remoteAudio.srcObject = stream
+        event.track.addEventListener('mute', () => log(`${nameFor(remoteId)}’s audio paused`))
+        event.track.addEventListener('unmute', () => log(`${nameFor(remoteId)}’s audio resumed`))
+        event.track.addEventListener('ended', () => log(`${nameFor(remoteId)}’s audio track ended`))
+        enableAudio().then(() => {
+          log(`Receiving live audio from ${nameFor(remoteId)}`)
+        }).catch((error) => {
+          requestAudioGesture(error)
+        })
       })
     }
 
@@ -275,7 +286,10 @@
     const peer = peers.get(remoteId)
     if (!peer) return
     clearTimeout(peer.connectionTimer)
-    if (peer.remoteSource) peer.remoteSource.disconnect()
+    if (peer.remoteStream && remoteAudio.srcObject === peer.remoteStream) {
+      remoteAudio.srcObject = audioUnlockDestination?.stream ?? null
+      remoteAudio.play().catch(() => resumeAudioButton.classList.remove('hidden'))
+    }
     peer.pc.close()
     peers.delete(remoteId)
   }
@@ -299,6 +313,18 @@
     connectionHelp.classList.remove('hidden')
     renderDiagnostics()
     log(`${reason} with ${nameFor(peer.remoteId)}. This network may require TURN.`)
+  }
+
+  async function enableAudio() {
+    if (audioContext?.state !== 'running') await audioContext.resume()
+    await remoteAudio.play()
+    resumeAudioButton.classList.add('hidden')
+  }
+
+  function requestAudioGesture(error) {
+    resumeAudioButton.classList.remove('hidden')
+    showToast('Your browser paused room audio. Tap Enable sound.')
+    log(`Audio output needs a tap: ${error?.message || 'playback was blocked'}`)
   }
 
   function renderConnectionSummary() {
@@ -816,6 +842,14 @@
   $('#join-form').addEventListener('submit', enterRoom)
   $('#track-file').addEventListener('change', selectTrack)
   $('#track-editor').addEventListener('submit', enqueueTrack)
+  resumeAudioButton.addEventListener('click', () => {
+    enableAudio().catch(requestAudioGesture)
+  })
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && roomState?.playback) {
+      enableAudio().catch(() => resumeAudioButton.classList.remove('hidden'))
+    }
+  })
   $('#skip-track').addEventListener('click', () => {
     if (roomState?.playback) send({ type: 'owner:skip', epoch: roomState.playback.epoch })
   })

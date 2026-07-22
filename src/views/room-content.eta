@@ -7,6 +7,7 @@
     <div class="flex flex-wrap items-center gap-2">
       <span class="room-code"><%= it.roomId %></span>
       <span class="status-pill" id="connection-state"><i></i><span>not connected</span></span>
+      <button class="button-quiet hidden" id="resume-audio" type="button">Enable sound</button>
       <% if (it.ownerToken) { %>
         <button class="button-quiet" id="copy-invite" type="button">Copy room link</button>
       <% } %>
@@ -129,5 +130,6 @@
     </div>
   </div>
 
+  <audio id="remote-audio" autoplay playsinline></audio>
   <div class="toast hidden" id="toast" role="status"></div>
 </section>
