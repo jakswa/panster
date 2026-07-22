@@ -22,7 +22,7 @@ type CompressedEncoding = 'br' | 'gzip'
 let cachedCss: string | undefined
 
 function assetCacheHeader() {
-  return env.NODE_ENV === 'production'
+  return env.NODE_ENV === 'production' && env.ASSET_VERSION !== 'dev'
     ? 'public, max-age=31536000, immutable'
     : 'no-store'
 }
