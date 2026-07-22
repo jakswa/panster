@@ -1,3 +1,5 @@
 process.env.ASSET_VERSION ||= 'test'
 process.env.NODE_ENV ||= 'test'
 process.env.PUBLIC_ORIGIN ||= 'https://panster.example'
+process.env.TURN_HOST ||= 'turn.panster.click'
+process.env.TURN_SHARED_SECRET ||= 'test-turn-shared-secret'

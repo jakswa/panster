@@ -60,12 +60,17 @@ panster.home.jake.town {
 }
 ```
 
-Caddy or Fly handles HTTPS and WebSocket upgrades. Panster uses Google's public stateless STUN service to discover direct peer paths; it does not currently have a TURN fallback.
+Caddy or Fly handles HTTPS and WebSocket upgrades. Panster uses Google's public stateless STUN service for direct peer discovery and a coturn relay at `turn.panster.click` when direct paths fail. The app mints six-hour coturn REST credentials, refreshes them before expiry, and never sends the static authentication secret to browsers.
 
 ```sh
 bun run app:build
-NODE_ENV=production ASSET_VERSION=$(git rev-parse --short HEAD) bun run start:prod
+TURN_SHARED_SECRET='<matching coturn static-auth-secret>' \
+  NODE_ENV=production \
+  ASSET_VERSION=$(git rev-parse --short HEAD) \
+  bun run start:prod
 ```
+
+The TURN server must use `use-auth-secret` with the same `static-auth-secret`, TLS on TCP `443`, TURN on UDP/TCP `3478`, and a restricted UDP relay range. Production stores `TURN_SHARED_SECRET` as an encrypted Fly secret; it must never be committed. The current relay also enforces per-user and total allocation quotas, a bandwidth limit, firewall restrictions, and automatic certificate renewal.
 
 ## Scripts
 
@@ -87,7 +92,7 @@ bun run build       # typecheck, tests, and production build
 - Rooms and queues disappear on process restart.
 - Rooms expire after 24 hours of inactivity; the process holds at most 1,000 rooms.
 - Room creation and per-socket messages are rate-limited.
-- Public STUN is configured, but no TURN relay is configured.
+- Public STUN and a temporary-credential TURN fallback are configured.
 - A current song cannot survive its owner's tab closing; Panster advances to the next entry.
 - Mobile/background tab suspension is not yet handled reliably.
 - Nearby listener devices are not synchronized speakers.

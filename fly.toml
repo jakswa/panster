@@ -8,7 +8,8 @@ primary_region = 'iad'
 
 [build]
 [env]
-  PUBLIC_ORIGIN = 'https://panster-party.fly.dev'
+  PUBLIC_ORIGIN = 'https://panster.click'
+  TURN_HOST = 'turn.panster.click'
 
 [http_service]
   internal_port = 3000

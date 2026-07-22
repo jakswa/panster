@@ -6,7 +6,7 @@
   const ownerToken = root.dataset.ownerToken
   const peerId = crypto.randomUUID()
   const maxTrackBytes = 150 * 1024 * 1024
-  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+  let rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
   const peers = new Map()
   const localTracks = new Map()
 
@@ -22,6 +22,7 @@
   let preparedTrack = null
   let activePlayback = null
   let toastTimer
+  let rtcRefreshTimer
 
   const $ = (selector) => document.querySelector(selector)
   const logElement = $('#log')
@@ -69,6 +70,7 @@
       remoteAudio.srcObject = audioUnlockDestination.stream
       await audioContext.resume()
       await remoteAudio.play()
+      await loadRtcConfig()
 
       displayName = name
       try { localStorage.setItem('panster-display-name', name) } catch {}
@@ -78,6 +80,58 @@
     } catch (error) {
       $('#join-error').textContent = `Audio could not start: ${error.message}`
       $('#enter-room').disabled = false
+    }
+  }
+
+  async function loadRtcConfig() {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 5_000)
+    try {
+      const params = new URLSearchParams({ peer: peerId })
+      const response = await fetch(`/rooms/${encodeURIComponent(roomId)}/ice-servers?${params}`, {
+        cache: 'no-store',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      })
+      if (!response.ok) throw new Error(`credential request failed (${response.status})`)
+
+      const config = await response.json()
+      if (
+        !Array.isArray(config.iceServers) ||
+        !config.iceServers.length ||
+        !Number.isFinite(config.expiresAt)
+      ) {
+        throw new Error('credential response was invalid')
+      }
+      rtcConfig = { iceServers: config.iceServers }
+      for (const peer of peers.values()) peer.pc.setConfiguration(rtcConfig)
+      scheduleRtcRefresh(config.expiresAt)
+      return true
+    } catch (error) {
+      log(`TURN unavailable; using direct connections only: ${error.message}`)
+      clearTimeout(rtcRefreshTimer)
+      rtcRefreshTimer = setTimeout(refreshRtcConfig, 60_000)
+      return false
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  function scheduleRtcRefresh(expiresAt) {
+    clearTimeout(rtcRefreshTimer)
+    const refreshAt = expiresAt * 1_000 - 5 * 60_000
+    rtcRefreshTimer = setTimeout(refreshRtcConfig, Math.max(60_000, refreshAt - Date.now()))
+  }
+
+  async function refreshRtcConfig() {
+    if (!await loadRtcConfig()) return
+
+    const broadcasterId = roomState?.playback?.entry.ownerPeerId
+    if (!broadcasterId) return
+    if (broadcasterId === peerId) {
+      await Promise.all([...peers.values()].map(restartPeerIce))
+    } else {
+      send({ type: 'ice:restart-request', to: broadcasterId })
     }
   }
 
@@ -162,6 +216,9 @@
       if (!peer || peer.mode !== 'broadcast') return
       await peer.pc.setRemoteDescription(message.description)
       await flushCandidates(peer)
+    } else if (message.type === 'ice:restart-request' && broadcasterId === peerId) {
+      const peer = peers.get(from)
+      if (peer?.mode === 'broadcast') await restartPeerIce(peer)
     } else if (message.type === 'ice') {
       const mode = broadcasterId === peerId ? 'broadcast' : 'listen'
       const peer = ensurePeer(from, mode)
@@ -280,6 +337,14 @@
     peer.offered = true
     await peer.pc.setLocalDescription(await peer.pc.createOffer())
     send({ type: 'offer', to: peer.remoteId, description: peer.pc.localDescription })
+  }
+
+  async function restartPeerIce(peer) {
+    if (peer.pc.signalingState !== 'stable') return
+    peer.pc.setConfiguration(rtcConfig)
+    peer.pc.restartIce()
+    peer.offered = false
+    await offerToListener(peer)
   }
 
   function closePeer(remoteId) {

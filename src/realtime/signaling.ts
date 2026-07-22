@@ -23,10 +23,12 @@ const readyEpochs = new Map<string, number>()
 const roomPattern = /^[A-Z0-9]{6}$/
 const peerPattern = /^[a-zA-Z0-9-]{1,64}$/
 const localTrackPattern = /^[a-zA-Z0-9-]{1,64}$/
-const signalTypes = new Set(['offer', 'answer', 'ice'])
+const signalTypes = new Set(['offer', 'answer', 'ice', 'ice:restart-request'])
 const maxRoomSize = 12
 const signalWindowMs = 10_000
 const maxSignalsPerWindow = 120
+const iceRestartWindowMs = 60_000
+const maxIceRestartsPerWindow = 3
 const maxSignalBytes = 64_000
 const maxTrackBytes = 150 * 1024 * 1024
 const maxTrackDurationSeconds = 4 * 60 * 60
@@ -49,6 +51,7 @@ export async function signalingRoute(c: Context) {
   }
 
   const signalTimes: number[] = []
+  const iceRestartTimes: number[] = []
 
   return upgradeWebSocket(c, {
     onOpen(_event, socket) {
@@ -95,6 +98,10 @@ export async function signalingRoute(c: Context) {
       if (!peer || !room) return
 
       const type = typeof message.type === 'string' ? message.type : ''
+      if (
+        type === 'ice:restart-request' &&
+        !acceptIceRestart(iceRestartTimes)
+      ) return
       if (signalTypes.has(type)) {
         relaySignal(room, peer, type, message)
         return
@@ -162,6 +169,9 @@ function relaySignal(
   const allowed =
     (type === 'offer' && peer.id === broadcasterId && to !== broadcasterId) ||
     (type === 'answer' && peer.id !== broadcasterId && to === broadcasterId) ||
+    (type === 'ice:restart-request' &&
+      peer.id !== broadcasterId &&
+      to === broadcasterId) ||
     (type === 'ice' &&
       ((peer.id === broadcasterId && to !== broadcasterId) ||
         (peer.id !== broadcasterId && to === broadcasterId)))
@@ -395,6 +405,16 @@ function acceptSignal(signalTimes: number[]) {
   if (signalTimes.length >= maxSignalsPerWindow) return false
 
   signalTimes.push(now)
+  return true
+}
+
+function acceptIceRestart(restartTimes: number[]) {
+  const now = Date.now()
+  const cutoff = now - iceRestartWindowMs
+  while (restartTimes[0] && restartTimes[0] < cutoff) restartTimes.shift()
+  if (restartTimes.length >= maxIceRestartsPerWindow) return false
+
+  restartTimes.push(now)
   return true
 }
 

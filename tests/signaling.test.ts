@@ -56,6 +56,23 @@ describe('room queue and WebRTC signaling', () => {
     expect(offer.from).toBe('guest-test')
     expect(offer.description.sdp).toBe('test-sdp')
 
+    const restartPromise = nextMessage(
+      guest,
+      (value) => value.type === 'ice:restart-request',
+    )
+    owner.send(JSON.stringify({ type: 'ice:restart-request', to: 'guest-test' }))
+    expect((await restartPromise).from).toBe('owner-test')
+
+    const extraRestarts = collectMessages(
+      guest,
+      (value) => value.type === 'ice:restart-request',
+      200,
+    )
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      owner.send(JSON.stringify({ type: 'ice:restart-request', to: 'guest-test' }))
+    }
+    expect(await extraRestarts).toHaveLength(2)
+
     owner.close()
     guest.close()
   })
@@ -222,5 +239,24 @@ function nextMessage(
     }
 
     socket.addEventListener('message', onMessage)
+  })
+}
+
+function collectMessages(
+  socket: WebSocket,
+  predicate: (value: Record<string, any>) => boolean,
+  durationMs: number,
+) {
+  return new Promise<Record<string, any>[]>((resolve) => {
+    const values: Record<string, any>[] = []
+    function onMessage(event: MessageEvent) {
+      const value = JSON.parse(String(event.data)) as Record<string, any>
+      if (predicate(value)) values.push(value)
+    }
+    socket.addEventListener('message', onMessage)
+    setTimeout(() => {
+      socket.removeEventListener('message', onMessage)
+      resolve(values)
+    }, durationMs)
   })
 }

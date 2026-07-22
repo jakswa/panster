@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { createHmac } from 'node:crypto'
 
 const { app } = await import('../src/app')
 const { createRoom } = await import('../src/realtime/room-registry')
@@ -75,6 +76,65 @@ describe('Panster HTTP app', () => {
     expect(await guest.text()).toContain('Add a song')
   })
 
+  test('issues short-lived TURN credentials for a live room', async () => {
+    const room = createRoom()
+    const before = Math.floor(Date.now() / 1000)
+    const res = await app.request(`/rooms/${room.id}/ice-servers?peer=peer-test`)
+    const after = Math.floor(Date.now() / 1000)
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+
+    const body = await res.json()
+    expect(body.iceServers[0]).toEqual({
+      urls: ['stun:stun.l.google.com:19302'],
+    })
+    expect(body.iceServers[1].urls).toEqual([
+      'turn:turn.panster.click:3478?transport=udp',
+      'turn:turn.panster.click:3478?transport=tcp',
+      'turns:turn.panster.click:443?transport=tcp',
+    ])
+
+    const [expiry, roomId, peerId] = body.iceServers[1].username.split(':')
+    expect(Number(expiry)).toBeGreaterThanOrEqual(before + 21_600)
+    expect(Number(expiry)).toBeLessThanOrEqual(after + 21_600)
+    expect(body.expiresAt).toBe(Number(expiry))
+    expect(roomId).toBe(room.id)
+    expect(peerId).toBe('peer-test')
+    expect(body.iceServers[1].credential).toBe(
+      createHmac('sha1', 'test-turn-shared-secret')
+        .update(body.iceServers[1].username)
+        .digest('base64'),
+    )
+    expect(JSON.stringify(body)).not.toContain('test-turn-shared-secret')
+  })
+
+  test('requires a valid peer ID before issuing TURN credentials', async () => {
+    const room = createRoom()
+
+    expect((await app.request(`/rooms/${room.id}/ice-servers`)).status).toBe(400)
+    expect(
+      (await app.request(`/rooms/${room.id}/ice-servers?peer=${'x'.repeat(65)}`)).status,
+    ).toBe(400)
+  })
+
+  test('rate limits TURN credential issuance per room', async () => {
+    const room = createRoom()
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const res = await app.request(`/rooms/${room.id}/ice-servers?peer=rate-test`, {
+        headers: { 'Fly-Client-IP': '203.0.113.10' },
+      })
+      expect(res.status).toBe(200)
+    }
+
+    const limited = await app.request(`/rooms/${room.id}/ice-servers?peer=rate-test`, {
+      headers: { 'Fly-Client-IP': '203.0.113.10' },
+    })
+    expect(limited.status).toBe(429)
+    expect(limited.headers.get('retry-after')).toBe('60')
+  })
+
   test('renders shareable room metadata without exposing the owner link', async () => {
     const room = createRoom()
     const res = await app.request(
@@ -108,12 +168,20 @@ describe('Panster HTTP app', () => {
     expect(res.status).toBe(403)
   })
 
-  test('serves the rotating media-plane code', async () => {
+  test('serves media-plane code that loads room-scoped ICE servers', async () => {
     const res = await app.request('/assets/test/room.js')
+    const script = await res.text()
 
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/javascript')
-    expect(await res.text()).toContain('RTCPeerConnection')
+    expect(script).toContain('RTCPeerConnection')
+    expect(script).toContain('/ice-servers')
+    expect(script).toContain('using direct connections only')
+    expect(script).toContain('AbortController')
+    expect(script).toContain('expiresAt')
+    expect(script).toContain('setConfiguration')
+    expect(script).toContain('ice:restart-request')
+    expect(script).not.toContain('test-turn-shared-secret')
   })
 
   test('rejects malformed room IDs', async () => {
