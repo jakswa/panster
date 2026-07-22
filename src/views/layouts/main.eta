@@ -4,6 +4,18 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><%= it.title %></title>
+    <% if (it.description && it.canonicalUrl) { %>
+    <meta name="description" content="<%= it.description %>">
+    <link rel="canonical" href="<%= it.canonicalUrl %>">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Panster">
+    <meta property="og:title" content="<%= it.title %>">
+    <meta property="og:description" content="<%= it.description %>">
+    <meta property="og:url" content="<%= it.canonicalUrl %>">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="<%= it.title %>">
+    <meta name="twitter:description" content="<%= it.description %>">
+    <% } %>
     <link rel="icon" href="/assets/<%= it.assetVersion %>/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/assets/<%= it.assetVersion %>/app.css">
     <% if (it.script) { %><script src="/assets/<%= it.assetVersion %>/<%= it.script %>" defer></script><% } %>

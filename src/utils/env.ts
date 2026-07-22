@@ -1,10 +1,23 @@
 const nodeEnv = process.env['NODE_ENV'] ?? 'development'
+const port = readPort()
 
 export const env = {
-  PORT: readPort(),
+  PORT: port,
   NODE_ENV: nodeEnv,
+  PUBLIC_ORIGIN: readPublicOrigin(port),
   ASSET_VERSION:
     nodeEnv === 'production' ? mustGet('ASSET_VERSION') : String(Date.now()),
+}
+
+function readPublicOrigin(port: number) {
+  const raw = process.env['PUBLIC_ORIGIN'] ?? `http://localhost:${port}`
+  const url = new URL(raw)
+
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('PUBLIC_ORIGIN must use http or https')
+  }
+
+  return url.origin
 }
 
 function mustGet(name: string) {

@@ -6,6 +6,7 @@ import {
   RoomCapacityError,
   touchRoom,
 } from '../realtime/room-registry'
+import { env } from '../utils/env'
 
 export const roomRoutes = new Hono()
 
@@ -54,7 +55,9 @@ roomRoutes.get('/rooms/:roomId', (c) => {
   touchRoom(roomId)
   c.header('Cache-Control', 'private, no-store')
   return c.var.render('room', {
-    title: `Panster · ${roomId}`,
+    title: `Join room ${roomId} · Panster`,
+    description: `Join room ${roomId} on Panster. Bring an MP3, add it to the shared queue, and listen together.`,
+    canonicalUrl: new URL(`/rooms/${roomId}`, env.PUBLIC_ORIGIN).href,
     roomId,
     ownerToken: token ?? '',
   })

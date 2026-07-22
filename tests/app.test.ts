@@ -14,6 +14,42 @@ describe('Panster HTTP app', () => {
     expect(await res.text()).toContain('Everyone gets a turn')
   })
 
+  test('renders text-only sharing metadata for the landing page', async () => {
+    const res = await app.request('https://panster.example/')
+    const html = await res.text()
+
+    expect(html).toContain(
+      '<meta name="description" content="Start a peer-to-peer listening room where friends take turns playing local MP3s. Nothing gets uploaded to Panster.">',
+    )
+    expect(html).toContain(
+      '<link rel="canonical" href="https://panster.example/">',
+    )
+    expect(html).toContain('<meta property="og:type" content="website">')
+    expect(html).toContain('<meta property="og:site_name" content="Panster">')
+    expect(html).toContain(
+      '<meta property="og:title" content="Panster · Music, passed around">',
+    )
+    expect(html).toContain(
+      '<meta property="og:url" content="https://panster.example/">',
+    )
+    expect(html).toContain('<meta name="twitter:card" content="summary">')
+    expect(html).not.toContain('og:image')
+    expect(html).not.toContain('twitter:image')
+  })
+
+  test('uses the trusted public origin instead of the request host', async () => {
+    const res = await app.request('https://attacker.example/')
+    const head = (await res.text()).match(/<head>([\s\S]*?)<\/head>/)?.[1] ?? ''
+
+    expect(head).toContain(
+      '<link rel="canonical" href="https://panster.example/">',
+    )
+    expect(head).toContain(
+      '<meta property="og:url" content="https://panster.example/">',
+    )
+    expect(head).not.toContain('attacker.example')
+  })
+
   test('creates an ephemeral room-owner link', async () => {
     const res = await app.request('http://localhost/rooms', {
       method: 'POST',
@@ -37,6 +73,33 @@ describe('Panster HTTP app', () => {
     expect(await owner.text()).toContain('Copy room link')
     expect(guest.status).toBe(200)
     expect(await guest.text()).toContain('Add a song')
+  })
+
+  test('renders shareable room metadata without exposing the owner link', async () => {
+    const room = createRoom()
+    const res = await app.request(
+      `https://panster.example/rooms/${room.id}?owner=${room.ownerToken}`,
+    )
+    const html = await res.text()
+    const head = html.match(/<head>([\s\S]*?)<\/head>/)?.[1] ?? ''
+
+    expect(head).toContain(`<title>Join room ${room.id} · Panster</title>`)
+    expect(head).toContain(
+      `<meta name="description" content="Join room ${room.id} on Panster. Bring an MP3, add it to the shared queue, and listen together.">`,
+    )
+    expect(head).toContain(
+      `<link rel="canonical" href="https://panster.example/rooms/${room.id}">`,
+    )
+    expect(head).toContain(
+      `<meta property="og:title" content="Join room ${room.id} · Panster">`,
+    )
+    expect(head).toContain(
+      `<meta property="og:url" content="https://panster.example/rooms/${room.id}">`,
+    )
+    expect(head).toContain('<meta name="twitter:card" content="summary">')
+    expect(head).not.toContain('owner=')
+    expect(head).not.toContain(room.ownerToken)
+    expect(head).not.toContain('og:image')
   })
 
   test('rejects a forged owner capability', async () => {

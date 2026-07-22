@@ -7,6 +7,9 @@ app = 'panster-party'
 primary_region = 'iad'
 
 [build]
+[env]
+  PUBLIC_ORIGIN = 'https://panster-party.fly.dev'
+
 [http_service]
   internal_port = 3000
   force_https = true
