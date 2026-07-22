@@ -4,6 +4,8 @@ A media-plane-first prototype for browser-based P2P DJ rooms.
 
 A guest sends an MP3 directly to the DJ over a WebRTC data channel. The DJ browser decodes it into a two-deck Web Audio graph, mixes it, and broadcasts the live output to guests as a WebRTC audio track.
 
+The planned next direction is a creator-independent shared song queue with a rotating peer broadcaster and simple start/end boundaries. See [`docs/`](docs/README.md) for the product and implementation plans.
+
 ## Run
 
 ```sh
