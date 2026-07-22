@@ -4,16 +4,17 @@ const { app } = await import('../src/app')
 const { createRoom } = await import('../src/realtime/room-registry')
 
 describe('Panster HTTP app', () => {
-  test('home page renders the prototype entry point', async () => {
+  test('home page renders the shared-queue entry point', async () => {
     const res = await app.request('/')
 
     expect(res.status).toBe(200)
     expect(res.headers.get('cache-control')).toBe('private, no-cache')
     expect(res.headers.get('content-security-policy')).toContain("default-src 'self'")
-    expect(await res.text()).toContain('media-plane prototype')
+    expect(res.headers.get('content-security-policy')).toContain("media-src 'self' blob:")
+    expect(await res.text()).toContain('Everyone gets a turn')
   })
 
-  test('creates an ephemeral DJ room', async () => {
+  test('creates an ephemeral room-owner link', async () => {
     const res = await app.request('http://localhost/rooms', {
       method: 'POST',
       headers: { Origin: 'http://localhost' },
@@ -21,30 +22,30 @@ describe('Panster HTTP app', () => {
 
     expect(res.status).toBe(303)
     expect(res.headers.get('location')).toMatch(
-      /^\/rooms\/[A-Z0-9]{6}\?role=dj&token=[a-zA-Z0-9_-]{32}$/,
+      /^\/rooms\/[A-Z0-9]{6}\?owner=[a-zA-Z0-9_-]{32}$/,
     )
   })
 
-  test('renders DJ and guest room surfaces', async () => {
+  test('renders the shared room surface for owners and guests', async () => {
     const room = createRoom()
-    const dj = await app.request(
-      `/rooms/${room.id}?role=dj&token=${room.djToken}`,
+    const owner = await app.request(
+      `/rooms/${room.id}?owner=${room.ownerToken}`,
     )
     const guest = await app.request(`/rooms/${room.id}`)
 
-    expect(dj.status).toBe(200)
-    expect(await dj.text()).toContain('Start DJ engine')
+    expect(owner.status).toBe(200)
+    expect(await owner.text()).toContain('Copy room link')
     expect(guest.status).toBe(200)
-    expect(await guest.text()).toContain('Send to DJ')
+    expect(await guest.text()).toContain('Add a song')
   })
 
-  test('rejects a forged DJ role', async () => {
+  test('rejects a forged owner capability', async () => {
     const room = createRoom()
-    const res = await app.request(`/rooms/${room.id}?role=dj&token=wrong`)
+    const res = await app.request(`/rooms/${room.id}?owner=wrong`)
     expect(res.status).toBe(403)
   })
 
-  test('serves the browser media-plane code', async () => {
+  test('serves the rotating media-plane code', async () => {
     const res = await app.request('/assets/test/room.js')
 
     expect(res.status).toBe(200)

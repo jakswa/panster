@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="/assets/<%= it.assetVersion %>/app.css">
     <% if (it.script) { %><script src="/assets/<%= it.assetVersion %>/<%= it.script %>" defer></script><% } %>
   </head>
-  <body class="min-h-screen bg-slate-950 font-body text-slate-100 antialiased">
-    <main class="mx-auto max-w-5xl px-4 py-8">
+  <body class="min-h-screen font-body text-stone-200 antialiased">
+    <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <%~ it.body %>
     </main>
   </body>

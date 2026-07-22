@@ -1,10 +1,8 @@
 # Panster
 
-A media-plane-first prototype for browser-based P2P DJ rooms.
+A small peer-to-peer listening room where friends add local MP3s to one shared queue. When a song reaches the front, its owner's browser broadcasts it directly to everyone else.
 
-A guest sends an MP3 directly to the DJ over a WebRTC data channel. The DJ browser decodes it into a two-deck Web Audio graph, mixes it, and broadcasts the live output to guests as a WebRTC audio track.
-
-The planned next direction is a creator-independent shared song queue with a rotating peer broadcaster and simple start/end boundaries. See [`docs/`](docs/README.md) for the product and implementation plans.
+**A room, a queue, everyone gets a turn.**
 
 ## Run
 
@@ -13,45 +11,48 @@ bun install
 bun run dev
 ```
 
-Open <http://localhost:3000>, create a room, and copy the guest link into another browser or device. The prototype does not need PostgreSQL or authentication.
+Open <http://localhost:3000>, start a room, and share its guest link. Every participant chooses a display name and presses **Enter room** to unlock browser audio.
 
-For testing across devices, serve Panster over HTTPS. WebRTC and Web Audio work on `localhost`, but browser security restrictions apply to non-localhost origins.
+Panster does not need PostgreSQL, accounts, or server-side music storage.
 
-## First end-to-end test
+## Try the shared queue
 
-1. Create a room in the DJ browser.
-2. Press **Start DJ engine**. This user gesture unlocks Web Audio and joins signaling.
-3. Open the guest link in another browser.
-4. On the DJ, load an MP3 into deck A and play it.
-5. Confirm the live mix reaches the guest audio control.
-6. On the guest, choose an MP3 and press **Send to DJ**.
-7. Confirm it appears in the DJ's empty deck, play it, and move the crossfader.
+1. Start a room and copy its room link.
+2. Open that link in another browser or device.
+3. Enter a name on each page.
+4. Choose an MP3. Panster reads its ID3 title and artist locally; edit them if needed.
+5. Press **Add to queue**.
+6. When the song reaches the front, its owner's browser broadcasts it directly to the room.
+7. Add another participant's song and confirm playback moves to their browser at the song boundary.
+8. Close the creator's tab and confirm the queue continues.
 
-For a useful fanout test, open a second guest and confirm both receive the same mix.
+A participant may keep one song waiting while their current song plays. If nobody adds another, playback stops and the room remains open with an empty queue.
 
-## Current architecture
+## Architecture
 
 ```text
-guest MP3
-    │ WebRTC DataChannel, 32 KiB chunks
-    ▼
-DJ browser
-    ├─ complete-file buffering + decodeAudioData()
-    ├─ AudioBufferSourceNode decks A/B
-    ├─ equal-power GainNode crossfader
-    └─ MediaStreamAudioDestinationNode
-             │ WebRTC live audio (normally Opus)
-             ▼
-         guest browsers
+                         ┌── listener A
+current song owner ──────┼── listener B
+                         └── listener C
+       Web Audio              WebRTC audio
 
-Bun + Hono: HTTP pages, assets, and WebSocket signaling
+Bun + Hono
+  ├─ room membership and shared FIFO queue
+  ├─ current-broadcaster assignment and playback epochs
+  └─ WebSocket signaling
 ```
 
-Rooms and peer rosters are in memory and disappear when the server restarts. Each room gets an unguessable DJ token that stays in the private DJ URL; copied guest links omit it. The server enforces that token on both the room page and signaling socket.
+The current song's source MP3 remains in its owner's tab. The Fly/Hono server receives text metadata and WebRTC signaling, but never receives MP3 bytes or live audio.
 
-The server relays only WebRTC signaling; MP3 bytes and live audio do not pass through the Hono server.
+At each song boundary, the next entry's owner becomes the broadcaster. Consecutive songs from the same owner reuse the existing media connections. The room creator holds a private moderation capability but is not permanent media infrastructure and may leave without ending playback.
 
-## Hosting behind Caddy
+See [`docs/`](docs/README.md) for the product model, state machine, failure policy, and implementation direction.
+
+## Hosting
+
+Panster is designed to run as one process. The included Fly.io configuration limits the app to one machine because room state and WebSocket peers are currently process-local.
+
+For a local Caddy deployment:
 
 ```caddy
 panster.home.jake.town {
@@ -59,7 +60,7 @@ panster.home.jake.town {
 }
 ```
 
-Caddy handles HTTPS and WebSocket upgrades. Panster uses Google's public stateless STUN service to discover direct peer paths; it does not currently have a TURN fallback.
+Caddy or Fly handles HTTPS and WebSocket upgrades. Panster uses Google's public stateless STUN service to discover direct peer paths; it does not currently have a TURN fallback.
 
 ```sh
 bun run app:build
@@ -69,37 +70,29 @@ NODE_ENV=production ASSET_VERSION=$(git rev-parse --short HEAD) bun run start:pr
 ## Scripts
 
 ```sh
-bun run dev        # Tailwind watcher + Bun server watcher
+bun run dev
 bun run typecheck
-bun test           # HTTP surface and live WebSocket relay tests
+bun test
 bun run app:build
+bun run build       # typecheck, tests, and production build
 ```
 
-## Prototype constraints
+## Current boundaries
 
-- Twelve peers per room, with direct DJ-to-guest fanout.
+- Twelve participants per room with direct broadcaster-to-listener fanout.
+- One waiting song per participant, in addition to their currently playing song.
+- MP3 only, with a 150 MB and four-hour per-track limit.
+- Client-side ID3 title, artist, and album extraction; artwork is deferred.
+- Hard song boundaries with no crossfade or beatmatching.
+- Rooms and queues disappear on process restart.
 - Rooms expire after 24 hours of inactivity; the process holds at most 1,000 rooms.
-- Room creation and per-socket signaling are rate-limited, and duplicate peer IDs are rejected.
-- One active track transfer per guest connection, with a 150 MB track limit and a 200 MB aggregate DJ receive reservation.
-- The DJ validates metadata, chunk sizes, and actual bytes received before decoding.
-- MP3 files are transferred completely before decoding; this is not incremental MP3 decode.
-- A transferred track fills deck A when empty, otherwise deck B.
-- Public STUN is configured, but no TURN server is configured yet.
-- A 15-second timeout identifies failed direct paths and explains when TURN is likely needed.
-- The diagnostics panel shows the selected ICE candidate types, transport, media bitrate, and RTT.
-- The DJ tab must remain active; mobile/background suspension is not handled.
-- Listener jitter buffers are not synchronized tightly enough for nearby devices acting as a speaker array.
-- DJ capability is protected by an in-memory token, but guest rooms remain link-accessible and there are no accounts.
+- Room creation and per-socket messages are rate-limited.
+- Public STUN is configured, but no TURN relay is configured.
+- A current song cannot survive its owner's tab closing; Panster advances to the next entry.
+- Mobile/background tab suspension is not yet handled reliably.
+- Nearby listener devices are not synchronized speakers.
 
-## Immediate next experiments
-
-1. Deploy behind HTTPS and test desktop Chrome/Firefox over LAN.
-2. Test home internet to mobile data and capture the reported ICE paths.
-3. Run a 30-minute mix with two listeners and several guest transfers.
-4. Collect real failures before deciding whether to add coturn.
-5. Only then decide between direct fanout, an SFU, or synchronized local playback.
-
-AI track planning, BPM analysis, beat grids, persistent libraries, and accounts are intentionally out of scope until this media path proves itself.
+PostgreSQL, durable libraries, album artwork, reactions, voting, AI sequencing, and richer transitions remain out of scope until the shared queue is solid with real rooms.
 
 ## License
 

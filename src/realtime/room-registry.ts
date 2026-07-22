@@ -1,8 +1,30 @@
+export type QueueEntry = {
+  id: string
+  localTrackId: string
+  ownerPeerId: string
+  title: string
+  artist: string | null
+  album: string | null
+  durationSeconds: number
+  size: number
+  addedAt: string
+}
+
+export type Playback = {
+  phase: 'starting' | 'playing'
+  entry: QueueEntry
+  epoch: number
+  startedAt: string | null
+}
+
 export type Room = {
   id: string
-  djToken: string
+  ownerToken: string
   createdAt: Date
   lastActiveAt: Date
+  queue: QueueEntry[]
+  playback: Playback | null
+  epoch: number
 }
 
 export class RoomCapacityError extends Error {}
@@ -25,11 +47,14 @@ export function createRoom(): Room {
   } while (rooms.has(id))
 
   const now = new Date()
-  const room = {
+  const room: Room = {
     id,
-    djToken: randomToken(),
+    ownerToken: randomToken(),
     createdAt: now,
     lastActiveAt: now,
+    queue: [],
+    playback: null,
+    epoch: 0,
   }
   rooms.set(id, room)
   return room
@@ -54,9 +79,9 @@ export function touchRoom(id: string) {
   return room
 }
 
-export function canJoinAsDj(id: string, token: string | undefined) {
+export function canJoinAsOwner(id: string, token: string | undefined) {
   const room = getRoom(id)
-  return Boolean(room && token && timingSafeEqual(room.djToken, token))
+  return Boolean(room && token && timingSafeEqual(room.ownerToken, token))
 }
 
 function pruneExpiredRooms() {

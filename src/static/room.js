@@ -3,37 +3,31 @@
   if (!root) return
 
   const roomId = root.dataset.roomId
-  const role = root.dataset.role
-  const isDj = role === 'dj'
-  const djToken = root.dataset.djToken
+  const ownerToken = root.dataset.ownerToken
   const peerId = crypto.randomUUID()
-
-  const logElement = document.querySelector('#log')
-  const connectionState = document.querySelector('#connection-state')
-  const iceSummary = document.querySelector('#ice-summary')
-  const mediaSummary = document.querySelector('#media-summary')
-  const connectionHelp = document.querySelector('#connection-help')
-  const peers = new Map()
-  let socket
-  let djPeerId
-  let guestDataChannel
-  let reservedIncomingBytes = 0
-
   const maxTrackBytes = 150 * 1024 * 1024
-  const maxIncomingBytes = 200 * 1024 * 1024
-  const maxIncomingChunkBytes = 64 * 1024
-  const rtcConfig = {
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  }
+  const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+  const peers = new Map()
+  const localTracks = new Map()
 
+  let socket
+  let roomState = null
+  let displayName = ''
   let audioContext
-  let mixOutput
+  let broadcastOutput
   let mediaDestination
-  let monitorConnected = false
-  const decks = {
-    a: { buffer: null, source: null, gain: null, name: 'Empty' },
-    b: { buffer: null, source: null, gain: null, name: 'Empty' },
-  }
+  let pendingTrack = null
+  let preparingEpoch = null
+  let preparedTrack = null
+  let activePlayback = null
+  let toastTimer
+
+  const $ = (selector) => document.querySelector(selector)
+  const logElement = $('#log')
+  const connectionState = $('#connection-state')
+  const iceSummary = $('#ice-summary')
+  const mediaSummary = $('#media-summary')
+  const connectionHelp = $('#connection-help')
 
   function log(message) {
     const time = new Date().toLocaleTimeString()
@@ -41,21 +35,56 @@
     logElement.scrollTop = logElement.scrollHeight
   }
 
-  function setConnectionState(value) {
-    connectionState.textContent = value
+  function showToast(message) {
+    const toast = $('#toast')
+    toast.textContent = message
+    toast.classList.remove('hidden')
+    clearTimeout(toastTimer)
+    toastTimer = setTimeout(() => toast.classList.add('hidden'), 4_000)
+  }
+
+  function setConnectionState(label, connected = false) {
+    connectionState.querySelector('span').textContent = label
+    connectionState.classList.toggle('connected', connected)
+  }
+
+  async function enterRoom(event) {
+    event.preventDefault()
+    const name = $('#display-name').value.trim().slice(0, 40)
+    if (!name) return
+
+    $('#enter-room').disabled = true
+    $('#join-error').textContent = ''
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext
+      audioContext = new AudioContextClass({ latencyHint: 'playback', sampleRate: 48_000 })
+      mediaDestination = audioContext.createMediaStreamDestination()
+      broadcastOutput = audioContext.createDynamicsCompressor()
+      broadcastOutput.connect(mediaDestination)
+      broadcastOutput.connect(audioContext.destination)
+      await audioContext.resume()
+
+      displayName = name
+      try { localStorage.setItem('panster-display-name', name) } catch {}
+      $('#join-gate').classList.add('hidden')
+      $('#room-app').classList.remove('hidden')
+      connectSignaling()
+    } catch (error) {
+      $('#join-error').textContent = `Audio could not start: ${error.message}`
+      $('#enter-room').disabled = false
+    }
   }
 
   function connectSignaling() {
-    if (socket && socket.readyState < WebSocket.CLOSING) return
-
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const params = new URLSearchParams({ room: roomId, peer: peerId, role })
-    if (isDj) params.set('token', djToken)
+    const params = new URLSearchParams({ room: roomId, peer: peerId, name: displayName })
+    if (ownerToken) params.set('token', ownerToken)
     socket = new WebSocket(`${protocol}//${location.host}/ws?${params}`)
+    setConnectionState('connecting')
 
     socket.addEventListener('open', () => {
-      setConnectionState('signaling')
-      log(`Joined signaling as ${role} ${peerId.slice(0, 8)}`)
+      setConnectionState('room open', true)
+      log(`Entered room as ${displayName}`)
     })
 
     socket.addEventListener('message', async (event) => {
@@ -67,52 +96,69 @@
       }
 
       try {
-        await handleSignal(message)
+        await handleMessage(message)
       } catch (error) {
-        log(`Signaling error: ${error.message}`)
+        log(`Room error: ${error.message}`)
         console.error(error)
       }
     })
 
     socket.addEventListener('close', (event) => {
       setConnectionState('offline')
-      log(`Signaling closed (${event.code}) ${event.reason}`)
+      closeAllPeers()
+      $('#room-note').textContent = 'Connection lost. Reload to rejoin the room.'
+      log(`Room connection closed (${event.code}) ${event.reason}`)
     })
 
-    socket.addEventListener('error', () => log('Signaling socket error'))
+    socket.addEventListener('error', () => log('Room connection error'))
   }
 
-  async function handleSignal(message) {
-    if (message.type === 'peers') {
-      await handleRoster(message.peers)
+  async function handleMessage(message) {
+    if (message.type === 'room:snapshot') {
+      const previousState = roomState
+      roomState = message.room
+      releaseRemovedQueueTracks(previousState, roomState)
+      renderRoom(message.you)
+      await reconcileMedia()
+      return
+    }
+
+    if (message.type === 'room:error') {
+      showToast(message.message)
+      $('#track-status').textContent = message.message
+      return
+    }
+
+    if (message.type === 'playback:go') {
+      await startAssignedTrack(message.epoch)
+      return
+    }
+
+    if (message.type === 'playback:stopped') {
+      stopLocalPlayback(message.epoch)
+      if (message.reason !== 'finished') showToast(`Song stopped: ${message.reason}.`)
       return
     }
 
     const from = message.from
-    if (!from) return
+    if (!from || !roomState?.playback) return
+    const broadcasterId = roomState.playback.entry.ownerPeerId
 
-    if (message.type === 'offer' && !isDj) {
-      const peer = ensurePeer(from)
-      djPeerId = from
+    if (message.type === 'offer' && from === broadcasterId && broadcasterId !== peerId) {
+      const peer = ensurePeer(from, 'listen')
       await peer.pc.setRemoteDescription(message.description)
       await flushCandidates(peer)
       await peer.pc.setLocalDescription(await peer.pc.createAnswer())
-      sendSignal(from, { type: 'answer', description: peer.pc.localDescription })
-      log('Answered DJ connection')
-      return
-    }
-
-    if (message.type === 'answer' && isDj) {
+      send({ type: 'answer', to: from, description: peer.pc.localDescription })
+      log(`Connected to ${nameFor(from)}'s song`)
+    } else if (message.type === 'answer' && broadcasterId === peerId) {
       const peer = peers.get(from)
-      if (!peer) return
+      if (!peer || peer.mode !== 'broadcast') return
       await peer.pc.setRemoteDescription(message.description)
       await flushCandidates(peer)
-      log(`Connected signaling with guest ${from.slice(0, 8)}`)
-      return
-    }
-
-    if (message.type === 'ice') {
-      const peer = ensurePeer(from)
+    } else if (message.type === 'ice') {
+      const mode = broadcasterId === peerId ? 'broadcast' : 'listen'
+      const peer = ensurePeer(from, mode)
       if (!message.candidate) return
       if (peer.pc.remoteDescription) {
         await peer.pc.addIceCandidate(message.candidate)
@@ -122,44 +168,53 @@
     }
   }
 
-  async function handleRoster(roster) {
-    const remotePeers = roster.filter((peer) => peer.id !== peerId)
-    const liveIds = new Set(remotePeers.map((peer) => peer.id))
+  async function reconcileMedia() {
+    const playback = roomState?.playback
+    if (!playback) {
+      closeAllPeers()
+      if (activePlayback) stopLocalPlayback(activePlayback.epoch)
+      renderConnectionSummary()
+      return
+    }
+
+    const broadcasterId = playback.entry.ownerPeerId
+    const participantIds = new Set(roomState.participants.map((participant) => participant.id))
+    const desiredIds = broadcasterId === peerId
+      ? new Set([...participantIds].filter((id) => id !== peerId))
+      : new Set([broadcasterId])
+    const mode = broadcasterId === peerId ? 'broadcast' : 'listen'
 
     for (const [id, peer] of peers) {
-      if (!liveIds.has(id)) {
-        clearTimeout(peer.connectionTimer)
-        peer.pc.close()
-        peers.delete(id)
-      }
+      if (!desiredIds.has(id) || peer.mode !== mode) closePeer(id)
+    }
+    for (const id of desiredIds) ensurePeer(id, mode)
+
+    if (broadcasterId === peerId && playback.phase === 'starting') {
+      prepareAssignedTrack(playback).catch((error) => {
+        log(`Track preparation failed: ${error.message}`)
+        send({ type: 'playback:failed', epoch: playback.epoch })
+      })
+    } else if (broadcasterId !== peerId && activePlayback) {
+      stopLocalPlayback(activePlayback.epoch)
     }
 
-    if (isDj) {
-      for (const remote of remotePeers.filter((peer) => peer.role === 'guest')) {
-        const peer = ensurePeer(remote.id)
-        if (!peer.offered) await offerToGuest(remote.id, peer)
-      }
-    } else {
-      const dj = remotePeers.find((peer) => peer.role === 'dj')
-      djPeerId = dj?.id
-      setConnectionState(dj ? 'DJ found' : 'waiting for DJ')
-    }
-    updateConnectionBadge()
-    renderDiagnostics()
+    renderConnectionSummary()
   }
 
-  function ensurePeer(remoteId) {
+  function ensurePeer(remoteId, mode) {
     const existing = peers.get(remoteId)
-    if (existing) return existing
+    if (existing?.mode === mode) return existing
+    if (existing) closePeer(remoteId)
 
     const pc = new RTCPeerConnection(rtcConfig)
     const peer = {
       remoteId,
+      mode,
       pc,
-      pendingCandidates: [],
       offered: false,
-      channel: null,
+      pendingCandidates: [],
       connectionTimer: null,
+      remoteSource: null,
       lastSample: null,
       iceText: 'Checking…',
       mediaText: 'Waiting for samples',
@@ -168,54 +223,66 @@
     scheduleConnectionTimeout(peer)
 
     pc.addEventListener('icecandidate', (event) => {
-      if (event.candidate) {
-        sendSignal(remoteId, { type: 'ice', candidate: event.candidate })
-      }
+      if (event.candidate) send({ type: 'ice', to: remoteId, candidate: event.candidate })
     })
 
     pc.addEventListener('connectionstatechange', () => {
-      log(`Peer ${remoteId.slice(0, 8)}: ${pc.connectionState}`)
-      updateConnectionBadge()
-
+      log(`${nameFor(remoteId)}: ${pc.connectionState}`)
       if (pc.connectionState === 'connected') {
         clearTimeout(peer.connectionTimer)
         connectionHelp.classList.add('hidden')
         updatePeerStats(peer)
       } else if (pc.connectionState === 'failed') {
-        showConnectionProblem(peer, 'ICE negotiation failed')
+        showConnectionProblem(peer, 'Direct connection failed')
       } else if (pc.connectionState === 'disconnected') {
         scheduleConnectionTimeout(peer, 10_000)
       }
+      renderConnectionSummary()
     })
 
     pc.addEventListener('icecandidateerror', (event) => {
       log(`ICE server error ${event.errorCode}: ${event.errorText || 'unknown error'}`)
     })
 
-    if (isDj) {
+    if (mode === 'broadcast') {
       const track = mediaDestination.stream.getAudioTracks()[0]
       track.contentHint = 'music'
       const sender = pc.addTrack(track, mediaDestination.stream)
       preferMusicBitrate(sender)
-
-      const channel = pc.createDataChannel('tracks', { ordered: true })
-      peer.channel = channel
-      receiveTracks(channel, remoteId)
+      offerToListener(peer).catch((error) => log(`Offer failed: ${error.message}`))
     } else {
       pc.addEventListener('track', (event) => {
-        const audio = document.querySelector('#live-audio')
-        audio.srcObject = event.streams[0] || new MediaStream([event.track])
-        audio.play().catch(() => log('Autoplay blocked; press play on the audio control'))
-        log('Live mix track received')
-      })
-
-      pc.addEventListener('datachannel', (event) => {
-        guestDataChannel = event.channel
-        prepareGuestChannel(guestDataChannel)
+        if (peer.remoteSource) peer.remoteSource.disconnect()
+        const stream = event.streams[0] || new MediaStream([event.track])
+        peer.remoteSource = audioContext.createMediaStreamSource(stream)
+        peer.remoteSource.connect(audioContext.destination)
+        audioContext.resume().catch(() => {})
+        log(`Receiving live audio from ${nameFor(remoteId)}`)
       })
     }
 
     return peer
+  }
+
+  async function offerToListener(peer) {
+    if (peer.offered) return
+    peer.offered = true
+    await peer.pc.setLocalDescription(await peer.pc.createOffer())
+    send({ type: 'offer', to: peer.remoteId, description: peer.pc.localDescription })
+  }
+
+  function closePeer(remoteId) {
+    const peer = peers.get(remoteId)
+    if (!peer) return
+    clearTimeout(peer.connectionTimer)
+    if (peer.remoteSource) peer.remoteSource.disconnect()
+    peer.pc.close()
+    peers.delete(remoteId)
+  }
+
+  function closeAllPeers() {
+    for (const id of [...peers.keys()]) closePeer(id)
+    renderDiagnostics()
   }
 
   function scheduleConnectionTimeout(peer, delay = 15_000) {
@@ -230,109 +297,354 @@
   function showConnectionProblem(peer, reason) {
     peer.iceText = `${reason}; no viable direct path`
     connectionHelp.classList.remove('hidden')
-    setConnectionState('connection failed')
     renderDiagnostics()
-    log(`${reason} with ${peer.remoteId.slice(0, 8)}. This network may require TURN.`)
+    log(`${reason} with ${nameFor(peer.remoteId)}. This network may require TURN.`)
   }
 
-  function updateConnectionBadge() {
-    const all = Array.from(peers.values())
-    const connected = all.filter((peer) => peer.pc.connectionState === 'connected').length
-
-    if (isDj) {
-      setConnectionState(all.length ? `${connected}/${all.length} connected` : 'waiting for guests')
-    } else if (connected) {
-      setConnectionState('connected')
-    }
-  }
-
-  async function updatePeerStats(peer) {
-    if (peer.pc.connectionState !== 'connected') return
-
-    try {
-      const stats = await peer.pc.getStats()
-      const transport = Array.from(stats.values()).find(
-        (stat) => stat.type === 'transport' && stat.selectedCandidatePairId,
-      )
-      let pair = transport ? stats.get(transport.selectedCandidatePairId) : null
-      if (!pair) {
-        pair = Array.from(stats.values()).find(
-          (stat) => stat.type === 'candidate-pair' && stat.state === 'succeeded' && stat.nominated,
-        )
-      }
-
-      if (pair) {
-        const local = stats.get(pair.localCandidateId)
-        const remote = stats.get(pair.remoteCandidateId)
-        const localType = local?.candidateType || 'unknown'
-        const remoteType = remote?.candidateType || 'unknown'
-        const protocol = local?.protocol || remote?.protocol || 'unknown'
-        peer.iceText = `${localType} ↔ ${remoteType} / ${protocol}`
-
-        const rtt = Number.isFinite(pair.currentRoundTripTime)
-          ? `${Math.round(pair.currentRoundTripTime * 1000)} ms RTT`
-          : 'RTT pending'
-        const bytes = Array.from(stats.values())
-          .filter((stat) =>
-            stat.type === (isDj ? 'outbound-rtp' : 'inbound-rtp') &&
-            (stat.kind === 'audio' || stat.mediaType === 'audio'),
-          )
-          .reduce(
-            (total, stat) => total + (isDj ? stat.bytesSent || 0 : stat.bytesReceived || 0),
-            0,
-          )
-        const now = performance.now()
-        let bitrate = 'sampling bitrate'
-        if (peer.lastSample && now > peer.lastSample.at) {
-          const bits = (bytes - peer.lastSample.bytes) * 8
-          const seconds = (now - peer.lastSample.at) / 1000
-          bitrate = `${Math.max(0, Math.round(bits / seconds / 1000))} kbps`
-        }
-        peer.lastSample = { bytes, at: now }
-        peer.mediaText = `${bitrate} · ${rtt}`
-      }
-    } catch (error) {
-      log(`Stats error for ${peer.remoteId.slice(0, 8)}: ${error.message}`)
-    }
-
-    renderDiagnostics()
-  }
-
-  function renderDiagnostics() {
-    const active = Array.from(peers.values()).filter(
-      (peer) => peer.pc.connectionState !== 'closed',
-    )
-    if (!active.length) {
-      iceSummary.textContent = 'Not connected'
-      mediaSummary.textContent = 'Waiting for samples'
+  function renderConnectionSummary() {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    const playback = roomState?.playback
+    if (!playback) {
+      setConnectionState('room open', true)
       return
     }
 
-    const label = (peer) => isDj ? `${peer.remoteId.slice(0, 8)}: ` : ''
-    iceSummary.textContent = active.map((peer) => `${label(peer)}${peer.iceText}`).join(' | ')
-    mediaSummary.textContent = active.map((peer) => `${label(peer)}${peer.mediaText}`).join(' | ')
+    const connected = [...peers.values()].filter((peer) => peer.pc.connectionState === 'connected').length
+    if (playback.entry.ownerPeerId === peerId) {
+      setConnectionState(playback.phase === 'playing' ? `broadcasting · ${connected}` : `preparing · ${connected}`, true)
+    } else {
+      setConnectionState(connected ? 'listening live' : 'connecting audio', connected > 0)
+    }
   }
 
-  async function updateConnectedStats() {
-    await Promise.all(Array.from(peers.values(), updatePeerStats))
+  async function prepareAssignedTrack(playback) {
+    if (preparingEpoch === playback.epoch || preparedTrack?.epoch === playback.epoch) return
+    preparingEpoch = playback.epoch
+    const local = localTracks.get(playback.entry.localTrackId)
+    if (!local) throw new Error('The local file is no longer available in this tab')
+
+    $('#track-status').textContent = `Preparing “${playback.entry.title}”…`
+    const bytes = await local.file.arrayBuffer()
+    const buffer = await audioContext.decodeAudioData(bytes)
+    if (roomState?.playback?.epoch !== playback.epoch) return
+
+    preparedTrack = { epoch: playback.epoch, entry: playback.entry, buffer }
+    preparingEpoch = null
+    await waitForAudience(2_000)
+    if (roomState?.playback?.epoch === playback.epoch) {
+      send({ type: 'playback:ready', epoch: playback.epoch })
+      $('#track-status').textContent = 'Your song is ready to play.'
+    }
   }
 
-  async function offerToGuest(remoteId, peer) {
-    peer.offered = true
-    await peer.pc.setLocalDescription(await peer.pc.createOffer())
-    sendSignal(remoteId, { type: 'offer', description: peer.pc.localDescription })
-    log(`Offered media connection to ${remoteId.slice(0, 8)}`)
+  async function waitForAudience(timeoutMs) {
+    const expected = roomState.participants.filter((participant) => participant.id !== peerId).length
+    if (!expected) return
+    const deadline = performance.now() + timeoutMs
+    while (performance.now() < deadline) {
+      const connected = [...peers.values()].filter((peer) => peer.pc.connectionState === 'connected').length
+      if (connected >= expected) return
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+  }
+
+  async function startAssignedTrack(epoch) {
+    if (!preparedTrack || preparedTrack.epoch !== epoch || roomState?.playback?.epoch !== epoch) {
+      send({ type: 'playback:failed', epoch })
+      return
+    }
+
+    if (activePlayback) stopLocalPlayback(activePlayback.epoch)
+    await audioContext.resume()
+    const source = audioContext.createBufferSource()
+    source.buffer = preparedTrack.buffer
+    source.connect(broadcastOutput)
+    const entry = preparedTrack.entry
+    activePlayback = { epoch, source, entry }
+    preparedTrack = null
+
+    source.addEventListener('ended', () => {
+      if (activePlayback?.epoch !== epoch) return
+      activePlayback = null
+      releaseLocalTrack(entry.localTrackId)
+      send({ type: 'playback:ended', epoch })
+      log(`Finished ${entry.title}`)
+    })
+    source.start(audioContext.currentTime + 0.04)
+    send({ type: 'playback:started', epoch })
+    log(`Playing ${entry.title}`)
+  }
+
+  function stopLocalPlayback(epoch) {
+    if (activePlayback?.epoch === epoch) {
+      const stopped = activePlayback
+      activePlayback = null
+      try { stopped.source.stop() } catch {}
+      stopped.source.disconnect()
+      releaseLocalTrack(stopped.entry.localTrackId)
+    }
+    if (preparedTrack?.epoch === epoch) {
+      releaseLocalTrack(preparedTrack.entry.localTrackId)
+      preparedTrack = null
+    }
+    if (preparingEpoch === epoch) preparingEpoch = null
+  }
+
+  function releaseLocalTrack(localTrackId) {
+    const local = localTracks.get(localTrackId)
+    if (!local) return
+    URL.revokeObjectURL(local.url)
+    localTracks.delete(localTrackId)
+  }
+
+  function releaseRemovedQueueTracks(previous, current) {
+    if (!previous) return
+    const retainedIds = new Set([
+      ...current.queue.filter((entry) => entry.ownerPeerId === peerId).map((entry) => entry.localTrackId),
+      ...(current.playback?.entry.ownerPeerId === peerId ? [current.playback.entry.localTrackId] : []),
+    ])
+    for (const entry of previous.queue) {
+      if (entry.ownerPeerId === peerId && !retainedIds.has(entry.localTrackId)) {
+        releaseLocalTrack(entry.localTrackId)
+      }
+    }
+  }
+
+  async function selectTrack(event) {
+    const file = event.target.files[0]
+    if (!file) return
+    if (file.size > maxTrackBytes) {
+      $('#track-status').textContent = 'That file is over the 150 MB room limit.'
+      event.target.value = ''
+      return
+    }
+    if (!file.name.toLowerCase().endsWith('.mp3') && file.type !== 'audio/mpeg') {
+      $('#track-status').textContent = 'Panster currently accepts MP3 files.'
+      event.target.value = ''
+      return
+    }
+
+    if (pendingTrack) URL.revokeObjectURL(pendingTrack.url)
+    $('#track-status').textContent = 'Reading the record label…'
+    $('#track-editor').classList.add('hidden')
+
+    let url
+    try {
+      url = URL.createObjectURL(file)
+      const [tags, duration] = await Promise.all([
+        readId3(file),
+        readDuration(url),
+      ])
+      pendingTrack = {
+        id: crypto.randomUUID(),
+        file,
+        url,
+        duration,
+        album: tags.album || null,
+      }
+      $('#track-title').value = tags.title || titleFromFilename(file.name)
+      $('#track-artist').value = tags.artist || ''
+      $('#track-filename').textContent = file.name
+      $('#track-duration').textContent = formatDuration(duration)
+      $('#track-editor').classList.remove('hidden')
+      $('#track-editor').classList.add('grid')
+      $('#track-status').textContent = tags.title || tags.artist
+        ? 'Found the tags. Make any edits, then add it.'
+        : 'No useful tags found—give it a quick look.'
+      $('#track-title').focus()
+    } catch (error) {
+      if (url) URL.revokeObjectURL(url)
+      $('#track-status').textContent = `Could not read that MP3: ${error.message}`
+      event.target.value = ''
+    }
+  }
+
+  function enqueueTrack(event) {
+    event.preventDefault()
+    if (!pendingTrack || hasWaitingTrack()) return
+
+    const title = $('#track-title').value.trim()
+    const artist = $('#track-artist').value.trim()
+    if (!title) return
+
+    localTracks.set(pendingTrack.id, pendingTrack)
+    send({
+      type: 'queue:add',
+      localTrackId: pendingTrack.id,
+      title,
+      artist,
+      album: pendingTrack.album,
+      durationSeconds: pendingTrack.duration,
+      size: pendingTrack.file.size,
+    })
+    pendingTrack = null
+    $('#track-file').value = ''
+    $('#track-editor').classList.add('hidden')
+    $('#track-editor').classList.remove('grid')
+    $('#track-status').textContent = `“${title}” joined the room.`
+  }
+
+  function hasWaitingTrack() {
+    return Boolean(roomState?.queue.some((entry) => entry.ownerPeerId === peerId))
+  }
+
+  function renderRoom(you) {
+    const participants = roomState.participants
+    const playback = roomState.playback
+    const isOwner = Boolean(you?.isOwner)
+    $('#owner-badge').classList.toggle('hidden', !isOwner)
+    $('#owner-controls').classList.toggle('hidden', !isOwner || !playback)
+    $('#owner-controls').classList.toggle('flex', isOwner && Boolean(playback))
+    $('#room-note').textContent = participants.length === 1
+      ? 'Just you for now. Add something good.'
+      : `${participants.length} here · music travels directly between browsers`
+
+    renderNowPlaying(playback)
+    renderQueue(isOwner)
+    renderPeople()
+    renderAddState()
+    renderConnectionSummary()
+  }
+
+  function renderNowPlaying(playback) {
+    const liveLabel = $('#live-label')
+    if (!playback) {
+      $('#now-title').textContent = 'The queue is open'
+      $('#now-artist').textContent = 'Add the first song from your computer.'
+      $('#now-by').textContent = 'MP3s stay between browsers.'
+      $('#duration-time').textContent = '—'
+      $('#elapsed-time').textContent = '0:00'
+      $('#playback-progress').style.width = '0%'
+      $('#now-art').style.setProperty('--art-hue', '82')
+      liveLabel.querySelector('span').textContent = 'quiet'
+      liveLabel.classList.remove('live')
+      return
+    }
+
+    const entry = playback.entry
+    $('#now-title').textContent = entry.title
+    $('#now-artist').textContent = entry.artist || 'Unknown artist'
+    $('#now-by').textContent = `${playback.phase === 'starting' ? 'Getting ready with' : 'Played by'} ${nameFor(entry.ownerPeerId)}`
+    $('#duration-time').textContent = formatDuration(entry.durationSeconds)
+    $('#now-art').style.setProperty('--art-hue', hueFor(entry.id))
+    liveLabel.querySelector('span').textContent = playback.phase === 'playing' ? 'live' : 'connecting'
+    liveLabel.classList.toggle('live', playback.phase === 'playing')
+    if (playback.phase === 'starting') {
+      $('#elapsed-time').textContent = '0:00'
+      $('#playback-progress').style.width = '0%'
+    } else {
+      updateProgress()
+    }
+  }
+
+  function renderQueue(isOwner) {
+    const list = $('#queue-list')
+    list.replaceChildren()
+    roomState.queue.forEach((entry, index) => {
+      const row = document.createElement('li')
+      row.className = 'queue-row'
+
+      const position = document.createElement('span')
+      position.className = 'queue-position'
+      position.textContent = String(index + 1).padStart(2, '0')
+
+      const art = document.createElement('span')
+      art.className = 'track-art track-art-small'
+      art.style.setProperty('--art-hue', hueFor(entry.id))
+      art.append(document.createElement('span'))
+
+      const copy = document.createElement('div')
+      copy.className = 'queue-copy'
+      const title = document.createElement('p')
+      title.className = 'queue-title'
+      title.textContent = entry.title
+      const meta = document.createElement('p')
+      meta.className = 'queue-meta'
+      meta.textContent = `${entry.artist || 'Unknown artist'} · ${nameFor(entry.ownerPeerId)} · ${formatDuration(entry.durationSeconds)}`
+      copy.append(title, meta)
+      row.append(position, art, copy)
+
+      if (entry.ownerPeerId === peerId || isOwner) {
+        const remove = document.createElement('button')
+        remove.className = 'queue-remove'
+        remove.type = 'button'
+        remove.title = 'Remove from queue'
+        remove.setAttribute('aria-label', `Remove ${entry.title} from queue`)
+        remove.textContent = '×'
+        remove.addEventListener('click', () => {
+          if (entry.ownerPeerId === peerId) releaseLocalTrack(entry.localTrackId)
+          send({ type: 'queue:remove', entryId: entry.id })
+        })
+        row.append(remove)
+      } else {
+        row.append(document.createElement('span'))
+      }
+      list.append(row)
+    })
+
+    $('#queue-count').textContent = `${roomState.queue.length} ${roomState.queue.length === 1 ? 'song' : 'songs'}`
+    $('#queue-empty').classList.toggle('hidden', roomState.queue.length > 0)
+  }
+
+  function renderPeople() {
+    const list = $('#people-list')
+    list.replaceChildren()
+    const broadcasterId = roomState.playback?.entry.ownerPeerId
+    for (const participant of roomState.participants) {
+      const item = document.createElement('li')
+      item.className = `person-chip${participant.id === broadcasterId ? ' broadcasting' : ''}`
+      const dot = document.createElement('i')
+      const label = document.createElement('span')
+      label.textContent = `${participant.displayName}${participant.id === peerId ? ' · you' : ''}${participant.isOwner ? ' · keeper' : ''}`
+      item.append(dot, label)
+      list.append(item)
+    }
+    $('#people-count').textContent = String(roomState.participants.length)
+  }
+
+  function renderAddState() {
+    const waiting = roomState.queue.find((entry) => entry.ownerPeerId === peerId)
+    const fileInput = $('#track-file')
+    const picker = $('#file-picker')
+    fileInput.disabled = Boolean(waiting)
+    picker.classList.toggle('disabled', Boolean(waiting))
+
+    if (waiting) {
+      $('#track-status').textContent = `“${waiting.title}” is waiting in the queue.`
+    } else if (!pendingTrack && roomState.playback?.entry.ownerPeerId === peerId) {
+      $('#track-status').textContent = 'Keep it going—add what should play after this.'
+    } else if (!pendingTrack && !localTracks.size) {
+      $('#track-status').textContent = 'Choose something you want the room to hear.'
+    }
+  }
+
+  function updateProgress() {
+    const playback = roomState?.playback
+    if (!playback || playback.phase !== 'playing' || !playback.startedAt) return
+    const elapsed = Math.max(0, (Date.now() - new Date(playback.startedAt).getTime()) / 1_000)
+    const progress = Math.min(1, elapsed / playback.entry.durationSeconds)
+    $('#elapsed-time').textContent = formatDuration(elapsed)
+    $('#playback-progress').style.width = `${progress * 100}%`
+  }
+
+  function nameFor(id) {
+    return roomState?.participants.find((participant) => participant.id === id)?.displayName || 'Someone'
+  }
+
+  function hueFor(value) {
+    let hash = 0
+    for (const character of value) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0
+    return String(Math.abs(hash) % 300 + 20)
+  }
+
+  function send(value) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value))
   }
 
   async function flushCandidates(peer) {
     for (const candidate of peer.pendingCandidates.splice(0)) {
       await peer.pc.addIceCandidate(candidate)
     }
-  }
-
-  function sendSignal(to, payload) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) return
-    socket.send(JSON.stringify({ ...payload, to }))
   }
 
   async function preferMusicBitrate(sender) {
@@ -346,304 +658,175 @@
     }
   }
 
-  async function startDjEngine() {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext
-    audioContext = new AudioContextClass({ latencyHint: 'playback', sampleRate: 48000 })
-    mediaDestination = audioContext.createMediaStreamDestination()
-    mixOutput = audioContext.createDynamicsCompressor()
-    mixOutput.connect(mediaDestination)
-
-    decks.a.gain = audioContext.createGain()
-    decks.b.gain = audioContext.createGain()
-    decks.a.gain.connect(mixOutput)
-    decks.b.gain.connect(mixOutput)
-    updateCrossfader()
-    updateMonitor()
-
-    await audioContext.resume()
-    document.querySelector('#start-engine').disabled = true
-    document.querySelector('#engine-state').textContent = `Running at ${audioContext.sampleRate} Hz`
-    log('DJ audio graph started')
-    connectSignaling()
-  }
-
-  function updateMonitor() {
-    if (!mixOutput || !audioContext) return
-    const enabled = document.querySelector('#monitor-output').checked
-    if (enabled && !monitorConnected) {
-      mixOutput.connect(audioContext.destination)
-      monitorConnected = true
-    } else if (!enabled && monitorConnected) {
-      mixOutput.disconnect(audioContext.destination)
-      monitorConnected = false
-    }
-  }
-
-  function updateCrossfader() {
-    if (!decks.a.gain || !decks.b.gain) return
-    const value = Number(document.querySelector('#crossfader').value)
-    const angle = ((value + 1) * Math.PI) / 4
-    decks.a.gain.gain.setValueAtTime(Math.cos(angle), audioContext.currentTime)
-    decks.b.gain.gain.setValueAtTime(Math.sin(angle), audioContext.currentTime)
-  }
-
-  async function decodeIntoDeck(deckName, bytes, name) {
-    if (!audioContext) throw new Error('Start the DJ engine first')
-    const deck = decks[deckName]
-    document.querySelector(`#deck-${deckName}-name`).textContent = `Decoding ${name}…`
-    deck.buffer = await audioContext.decodeAudioData(bytes)
-    deck.name = name
-    document.querySelector(`#deck-${deckName}-name`).textContent = `${name} — ${formatDuration(deck.buffer.duration)}`
-    document.querySelector(`#deck-${deckName}-play`).disabled = false
-    log(`Loaded ${name} into deck ${deckName.toUpperCase()}`)
-  }
-
-  function playDeck(deckName) {
-    const deck = decks[deckName]
-    if (!deck.buffer) return
-    stopDeck(deckName)
-    const source = audioContext.createBufferSource()
-    source.buffer = deck.buffer
-    source.connect(deck.gain)
-    source.addEventListener('ended', () => {
-      if (deck.source === source) {
-        deck.source = null
-        document.querySelector(`#deck-${deckName}-stop`).disabled = true
-      }
-    })
-    source.start(audioContext.currentTime + 0.03)
-    deck.source = source
-    document.querySelector(`#deck-${deckName}-stop`).disabled = false
-    log(`Playing deck ${deckName.toUpperCase()}: ${deck.name}`)
-  }
-
-  function stopDeck(deckName) {
-    const deck = decks[deckName]
-    if (!deck.source) return
+  async function updatePeerStats(peer) {
+    if (peer.pc.connectionState !== 'connected') return
     try {
-      deck.source.stop()
-    } catch {}
-    deck.source.disconnect()
-    deck.source = null
-    document.querySelector(`#deck-${deckName}-stop`).disabled = true
+      const stats = await peer.pc.getStats()
+      const transport = [...stats.values()].find((stat) => stat.type === 'transport' && stat.selectedCandidatePairId)
+      let pair = transport ? stats.get(transport.selectedCandidatePairId) : null
+      if (!pair) {
+        pair = [...stats.values()].find((stat) => stat.type === 'candidate-pair' && stat.state === 'succeeded' && stat.nominated)
+      }
+      if (pair) {
+        const local = stats.get(pair.localCandidateId)
+        const remote = stats.get(pair.remoteCandidateId)
+        peer.iceText = `${local?.candidateType || 'unknown'} ↔ ${remote?.candidateType || 'unknown'} / ${local?.protocol || remote?.protocol || 'unknown'}`
+        const outbound = peer.mode === 'broadcast'
+        const bytes = [...stats.values()]
+          .filter((stat) => stat.type === (outbound ? 'outbound-rtp' : 'inbound-rtp') && (stat.kind === 'audio' || stat.mediaType === 'audio'))
+          .reduce((total, stat) => total + (outbound ? stat.bytesSent || 0 : stat.bytesReceived || 0), 0)
+        const now = performance.now()
+        let bitrate = 'sampling bitrate'
+        if (peer.lastSample && now > peer.lastSample.at) {
+          bitrate = `${Math.max(0, Math.round(((bytes - peer.lastSample.bytes) * 8) / ((now - peer.lastSample.at) / 1_000) / 1_000))} kbps`
+        }
+        const rtt = Number.isFinite(pair.currentRoundTripTime) ? `${Math.round(pair.currentRoundTripTime * 1_000)} ms RTT` : 'RTT pending'
+        peer.lastSample = { bytes, at: now }
+        peer.mediaText = `${bitrate} · ${rtt}`
+      }
+    } catch (error) {
+      log(`Stats error: ${error.message}`)
+    }
+    renderDiagnostics()
   }
 
-  function receiveTracks(channel, remoteId) {
-    channel.binaryType = 'arraybuffer'
-    let transfer = null
-
-    const releaseReservation = (item) => {
-      if (!item?.reserved) return
-      item.reserved = false
-      reservedIncomingBytes = Math.max(0, reservedIncomingBytes - item.size)
-    }
-
-    const rejectTransfer = (reason) => {
-      releaseReservation(transfer)
-      transfer = null
-      log(`Rejected track from ${remoteId.slice(0, 8)}: ${reason}`)
-      channel.close()
-    }
-
-    channel.addEventListener('open', () => log(`Track channel open with ${remoteId.slice(0, 8)}`))
-    channel.addEventListener('close', () => {
-      releaseReservation(transfer)
-      transfer = null
-      log(`Track channel closed with ${remoteId.slice(0, 8)}`)
-    })
-    channel.addEventListener('message', async (event) => {
-      if (typeof event.data === 'string') {
-        if (event.data.length > 4_096) {
-          rejectTransfer('metadata is too large')
-          return
-        }
-
-        let message
-        try {
-          message = JSON.parse(event.data)
-        } catch {
-          rejectTransfer('invalid metadata')
-          return
-        }
-
-        if (message.type === 'track-start') {
-          const validId = typeof message.id === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(message.id)
-          const validName = typeof message.name === 'string' && message.name.length > 0 && message.name.length <= 255
-          const validSize = Number.isSafeInteger(message.size) && message.size > 0 && message.size <= maxTrackBytes
-
-          if (transfer) return rejectTransfer('overlapping transfers are not allowed')
-          if (!validId || !validName || !validSize) return rejectTransfer('invalid track declaration')
-          if (reservedIncomingBytes + message.size > maxIncomingBytes) {
-            return rejectTransfer('DJ receive buffer is full')
-          }
-
-          transfer = {
-            id: message.id,
-            name: message.name,
-            size: message.size,
-            chunks: [],
-            received: 0,
-            reserved: true,
-          }
-          reservedIncomingBytes += message.size
-          log(`Receiving ${message.name} (${formatBytes(message.size)})`)
-        } else if (message.type === 'track-end') {
-          if (!transfer || transfer.id !== message.id) {
-            return rejectTransfer('unexpected transfer end')
-          }
-          if (transfer.received !== transfer.size) {
-            return rejectTransfer(`incomplete transfer: ${transfer.received}/${transfer.size} bytes`)
-          }
-
-          const completed = transfer
-          transfer = null
-          try {
-            const bytes = await new Blob(completed.chunks).arrayBuffer()
-            const targetDeck = decks.a.buffer ? 'b' : 'a'
-            await decodeIntoDeck(targetDeck, bytes, completed.name)
-          } catch (error) {
-            log(`Decode failed: ${error.message}`)
-          } finally {
-            releaseReservation(completed)
-          }
-        }
-        return
-      }
-
-      if (!transfer) return
-      const chunk = event.data instanceof ArrayBuffer
-        ? event.data
-        : event.data instanceof Blob
-          ? await event.data.arrayBuffer()
-          : null
-      if (!chunk) return rejectTransfer('unsupported binary message')
-      if (chunk.byteLength === 0 || chunk.byteLength > maxIncomingChunkBytes) {
-        return rejectTransfer('invalid chunk size')
-      }
-      if (transfer.received + chunk.byteLength > transfer.size) {
-        return rejectTransfer('received more bytes than declared')
-      }
-
-      transfer.chunks.push(chunk)
-      transfer.received += chunk.byteLength
-    })
-  }
-
-  function prepareGuestChannel(channel) {
-    channel.binaryType = 'arraybuffer'
-    const sendButton = document.querySelector('#send-track')
-    const fileInput = document.querySelector('#guest-file')
-
-    const update = () => {
-      sendButton.disabled = channel.readyState !== 'open' || !fileInput.files.length
-    }
-
-    channel.addEventListener('open', () => {
-      document.querySelector('#transfer-state').textContent = 'Ready to send.'
-      log('Track data channel open')
-      update()
-    })
-    channel.addEventListener('close', () => {
-      document.querySelector('#transfer-state').textContent = 'Track channel closed.'
-      update()
-    })
-    fileInput.addEventListener('change', update)
-    sendButton.addEventListener('click', () => sendGuestTrack(channel))
-    update()
-  }
-
-  async function sendGuestTrack(channel) {
-    const file = document.querySelector('#guest-file').files[0]
-    if (!file || channel.readyState !== 'open') return
-    if (file.size > maxTrackBytes) {
-      document.querySelector('#transfer-state').textContent = 'Prototype limit: 150 MB.'
+  function renderDiagnostics() {
+    const active = [...peers.values()].filter((peer) => peer.pc.connectionState !== 'closed')
+    if (!active.length) {
+      iceSummary.textContent = 'Not connected'
+      mediaSummary.textContent = 'Waiting for samples'
       return
     }
+    const label = (peer) => peers.size > 1 ? `${nameFor(peer.remoteId)}: ` : ''
+    iceSummary.textContent = active.map((peer) => `${label(peer)}${peer.iceText}`).join(' | ')
+    mediaSummary.textContent = active.map((peer) => `${label(peer)}${peer.mediaText}`).join(' | ')
+  }
 
-    const button = document.querySelector('#send-track')
-    const progress = document.querySelector('#transfer-progress')
-    const state = document.querySelector('#transfer-state')
-    const id = crypto.randomUUID()
-    const chunkSize = 32 * 1024
+  async function readDuration(url) {
+    return new Promise((resolve, reject) => {
+      const audio = new Audio()
+      const timeout = setTimeout(() => reject(new Error('metadata timed out')), 10_000)
+      audio.preload = 'metadata'
+      audio.addEventListener('loadedmetadata', () => {
+        clearTimeout(timeout)
+        if (Number.isFinite(audio.duration) && audio.duration > 0) resolve(audio.duration)
+        else reject(new Error('duration is unavailable'))
+      }, { once: true })
+      audio.addEventListener('error', () => {
+        clearTimeout(timeout)
+        reject(new Error('the browser could not read it'))
+      }, { once: true })
+      audio.src = url
+    })
+  }
 
-    button.disabled = true
-    progress.value = 0
-    channel.bufferedAmountLowThreshold = 256 * 1024
-    channel.send(JSON.stringify({ type: 'track-start', id, name: file.name, size: file.size, mime: file.type }))
+  async function readId3(file) {
+    const headSize = Math.min(file.size, 512 * 1024)
+    const [head, tail] = await Promise.all([
+      file.slice(0, headSize).arrayBuffer(),
+      file.slice(Math.max(0, file.size - 128)).arrayBuffer(),
+    ])
+    return { ...readId3v1(tail), ...readId3v2(head) }
+  }
 
-    try {
-      for (let offset = 0; offset < file.size; offset += chunkSize) {
-        if (channel.readyState !== 'open') throw new Error('Data channel closed')
-        await waitForBuffer(channel)
-        const chunk = await file.slice(offset, offset + chunkSize).arrayBuffer()
-        channel.send(chunk)
-        progress.value = Math.min(1, (offset + chunk.byteLength) / file.size)
-        state.textContent = `Sending ${Math.round(progress.value * 100)}% — ${formatBytes(file.size)}`
+  function readId3v2(buffer) {
+    const bytes = new Uint8Array(buffer)
+    if (bytes.length < 10 || String.fromCharCode(...bytes.slice(0, 3)) !== 'ID3') return {}
+    const version = bytes[3]
+    const tagEnd = Math.min(bytes.length, 10 + synchsafe(bytes, 6))
+    const tags = {}
+    let offset = 10
+
+    while (offset < tagEnd) {
+      const shortFrames = version === 2
+      const headerSize = shortFrames ? 6 : 10
+      if (offset + headerSize > tagEnd) break
+      const idLength = shortFrames ? 3 : 4
+      const id = String.fromCharCode(...bytes.slice(offset, offset + idLength))
+      if (!/^[A-Z0-9]+$/.test(id)) break
+      const size = shortFrames
+        ? (bytes[offset + 3] << 16) | (bytes[offset + 4] << 8) | bytes[offset + 5]
+        : version === 4
+          ? synchsafe(bytes, offset + 4)
+          : new DataView(buffer).getUint32(offset + 4)
+      const bodyStart = offset + headerSize
+      const bodyEnd = bodyStart + size
+      if (size <= 0 || bodyEnd > tagEnd) break
+      const value = decodeTextFrame(bytes.slice(bodyStart, bodyEnd))
+      if ((id === 'TIT2' || id === 'TT2') && value) tags.title = value
+      if ((id === 'TPE1' || id === 'TP1') && value) tags.artist = value
+      if ((id === 'TALB' || id === 'TAL') && value) tags.album = value
+      offset = bodyEnd
+    }
+    return tags
+  }
+
+  function readId3v1(buffer) {
+    const bytes = new Uint8Array(buffer)
+    if (bytes.length !== 128 || String.fromCharCode(...bytes.slice(0, 3)) !== 'TAG') return {}
+    const decoder = new TextDecoder('iso-8859-1')
+    const clean = (start, length) => decoder.decode(bytes.slice(start, start + length)).replace(/\0/g, '').trim()
+    return { title: clean(3, 30) || undefined, artist: clean(33, 30) || undefined, album: clean(63, 30) || undefined }
+  }
+
+  function decodeTextFrame(bytes) {
+    if (bytes.length < 2) return ''
+    const encoding = bytes[0]
+    let payload = bytes.slice(1)
+    let charset = 'iso-8859-1'
+    if (encoding === 1) {
+      if (payload[0] === 0xff && payload[1] === 0xfe) {
+        charset = 'utf-16le'
+        payload = payload.slice(2)
+      } else if (payload[0] === 0xfe && payload[1] === 0xff) {
+        charset = 'utf-16be'
+        payload = payload.slice(2)
+      } else {
+        charset = 'utf-16le'
       }
-
-      await waitForBuffer(channel)
-      channel.send(JSON.stringify({ type: 'track-end', id }))
-      state.textContent = `Sent ${file.name}`
-      log(`Sent ${file.name} to the DJ`)
-    } catch (error) {
-      state.textContent = `Transfer failed: ${error.message}`
-      log(state.textContent)
-    } finally {
-      button.disabled = channel.readyState !== 'open'
+    } else if (encoding === 2) {
+      charset = 'utf-16be'
+    } else if (encoding === 3) {
+      charset = 'utf-8'
+    }
+    try {
+      return new TextDecoder(charset).decode(payload).replace(/\0/g, '').trim().slice(0, 120)
+    } catch {
+      return ''
     }
   }
 
-  async function waitForBuffer(channel) {
-    while (channel.bufferedAmount > 1024 * 1024) {
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Transfer buffer stalled')), 10_000)
-        const onLow = () => {
-          clearTimeout(timeout)
-          channel.removeEventListener('bufferedamountlow', onLow)
-          resolve()
-        }
-        channel.addEventListener('bufferedamountlow', onLow)
-        if (channel.bufferedAmount <= channel.bufferedAmountLowThreshold) onLow()
-      })
-    }
+  function synchsafe(bytes, offset) {
+    return ((bytes[offset] & 0x7f) << 21) |
+      ((bytes[offset + 1] & 0x7f) << 14) |
+      ((bytes[offset + 2] & 0x7f) << 7) |
+      (bytes[offset + 3] & 0x7f)
   }
 
-  function formatBytes(bytes) {
-    return bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  function titleFromFilename(filename) {
+    return filename.replace(/\.mp3$/i, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Untitled track'
   }
 
   function formatDuration(seconds) {
+    if (!Number.isFinite(seconds)) return '—'
     return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
   }
 
-  setInterval(updateConnectedStats, 2_000)
+  try { $('#display-name').value = localStorage.getItem('panster-display-name') || '' } catch {}
+  $('#join-form').addEventListener('submit', enterRoom)
+  $('#track-file').addEventListener('change', selectTrack)
+  $('#track-editor').addEventListener('submit', enqueueTrack)
+  $('#skip-track').addEventListener('click', () => {
+    if (roomState?.playback) send({ type: 'owner:skip', epoch: roomState.playback.epoch })
+  })
+  $('#copy-invite')?.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(`${location.origin}/rooms/${roomId}`)
+    $('#copy-invite').textContent = 'Copied'
+    setTimeout(() => { $('#copy-invite').textContent = 'Copy room link' }, 1_500)
+  })
 
-  if (isDj) {
-    document.querySelector('#start-engine').addEventListener('click', () => {
-      startDjEngine().catch((error) => log(`Audio startup failed: ${error.message}`))
-    })
-    document.querySelector('#monitor-output').addEventListener('change', updateMonitor)
-    document.querySelector('#crossfader').addEventListener('input', updateCrossfader)
-    document.querySelector('#copy-invite').addEventListener('click', async () => {
-      const url = `${location.origin}/rooms/${roomId}`
-      await navigator.clipboard.writeText(url)
-      document.querySelector('#copy-invite').textContent = 'Copied'
-    })
-
-    for (const deckName of ['a', 'b']) {
-      document.querySelector(`#deck-${deckName}-file`).addEventListener('change', async (event) => {
-        const file = event.target.files[0]
-        if (!file) return
-        try {
-          await decodeIntoDeck(deckName, await file.arrayBuffer(), file.name)
-        } catch (error) {
-          log(`Decode failed: ${error.message}`)
-        }
-      })
-      document.querySelector(`#deck-${deckName}-play`).addEventListener('click', () => playDeck(deckName))
-      document.querySelector(`#deck-${deckName}-stop`).addEventListener('click', () => stopDeck(deckName))
-    }
-  } else {
-    connectSignaling()
-  }
+  setInterval(() => {
+    updateProgress()
+    for (const peer of peers.values()) updatePeerStats(peer)
+  }, 2_000)
 })()

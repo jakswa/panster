@@ -1,6 +1,6 @@
 # Panster planning
 
-These documents describe the next product direction beyond the current media-plane prototype.
+These documents describe Panster's shared-queue product direction and the work growing out of the original media-plane prototype.
 
 ## Core decision
 
@@ -18,4 +18,4 @@ There is no permanent media host. The room creator is a moderator, not infrastru
 
 ## Status
 
-This is a plan, not the behavior of the current prototype. The prototype still uses the creator's DJ browser as the permanent media hub and supports P2P MP3 contribution to that hub.
+The initial shared-queue experience is implemented: client-side metadata, one waiting song per participant, rotating WebRTC broadcasters, hard handoffs, playback epochs, owner-independent rooms, and failure timeouts. Reliability work across more browsers and real networks remains ongoing.

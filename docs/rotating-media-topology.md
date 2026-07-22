@@ -42,10 +42,10 @@ The broadcaster does not need a loopback WebRTC connection to hear itself.
 1. The local source emits `ended`.
 2. The broadcaster reports the current epoch ended.
 3. Server broadcasts the stop and assigns the next entry.
-4. Old peer connections close.
+4. Old peer connections close when the next entry belongs to a different participant.
 5. The new broadcaster creates a fresh star topology.
 
-A short, explicit gap is acceptable in the first version.
+When consecutive entries belong to the same participant, Panster keeps that participant's existing media connections and replaces only the local source under a new epoch. A short, explicit gap remains acceptable.
 
 ### Listener joins mid-song
 

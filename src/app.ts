@@ -19,6 +19,7 @@ app.use(
       baseUri: ["'self'"],
       formAction: ["'self'"],
       frameAncestors: ["'none'"],
+      mediaSrc: ["'self'", 'blob:'],
       objectSrc: ["'none'"],
     },
   }),

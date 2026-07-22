@@ -49,7 +49,7 @@ Actual TypeScript may differ, but the invariants should not.
 ## Invariants
 
 1. Queue order is server-authoritative.
-2. A participant owns at most one queued or playing entry.
+2. A participant owns at most one waiting entry; their currently playing entry does not consume that allowance.
 3. Only the participant owning the current entry may become broadcaster.
 4. Playback messages must include the current epoch.
 5. Messages from an old epoch cannot stop or advance newer playback.

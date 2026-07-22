@@ -1,4 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Bun Hono SSR logo">
-  <rect width="64" height="64" rx="16" fill="#eef2ff"/>
-  <path d="M16 42h32M20 32h24M24 22h16" stroke="#4f46e5" stroke-width="6" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" role="img" aria-label="Panster">
+  <g transform="translate(2 2)">
+    <circle cx="18" cy="18" r="18" fill="#bef264"/>
+    <circle cx="18" cy="18" r="11" fill="none" stroke="#11110f" stroke-opacity=".28"/>
+    <circle cx="18" cy="18" r="5" fill="none" stroke="#11110f" stroke-opacity=".28"/>
+    <circle cx="18" cy="18" r="2.5" fill="#11110f"/>
+  </g>
+  <text x="48" y="28" fill="#f5f5f4" font-family="system-ui,sans-serif" font-size="25" font-weight="800" letter-spacing="-1">panster</text>
 </svg>

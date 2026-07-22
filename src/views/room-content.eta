@@ -1,80 +1,133 @@
-<section id="room" class="grid gap-6" data-room-id="<%= it.roomId %>" data-role="<%= it.role %>" data-dj-token="<%= it.djToken %>">
-  <header class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-700 pb-5">
-    <div>
-      <a class="text-sm text-slate-400 hover:text-white" href="/">← Panster</a>
-      <h1 class="mt-2 text-3xl font-black text-white">Room <span class="font-mono text-fuchsia-400"><%= it.roomId %></span></h1>
-      <p class="mt-1 text-slate-400">Role: <strong class="text-slate-200"><%= it.role %></strong></p>
-    </div>
-    <div class="flex gap-2">
-      <span class="rounded border border-slate-600 px-3 py-2 font-mono text-sm" id="connection-state">offline</span>
-      <% if (it.role === 'dj') { %>
-        <button class="cursor-pointer rounded border border-slate-600 px-3 py-2 text-sm font-bold hover:bg-slate-800" id="copy-invite" type="button">Copy guest link</button>
+<section id="room" data-room-id="<%= it.roomId %>" data-owner-token="<%= it.ownerToken %>">
+  <header class="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-5">
+    <a class="group flex items-center gap-3" href="/" aria-label="Panster home">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span class="text-lg font-black tracking-[-0.03em] text-stone-100">panster</span>
+    </a>
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="room-code"><%= it.roomId %></span>
+      <span class="status-pill" id="connection-state"><i></i><span>not connected</span></span>
+      <% if (it.ownerToken) { %>
+        <button class="button-quiet" id="copy-invite" type="button">Copy room link</button>
       <% } %>
     </div>
   </header>
 
-  <section class="grid grid-cols-2 gap-3 rounded border border-slate-700 bg-slate-900 p-4 text-sm max-[720px]:grid-cols-1" aria-label="WebRTC diagnostics">
-    <div>
-      <div class="font-bold text-slate-400">Selected ICE path</div>
-      <div class="mt-1 font-mono" id="ice-summary">Not connected</div>
+  <section class="mx-auto mt-14 max-w-md" id="join-gate">
+    <div class="panel p-6 sm:p-8">
+      <p class="eyebrow">Room <%= it.roomId %></p>
+      <h1 class="mt-3 text-3xl font-black tracking-[-0.04em] text-stone-50">Come on in.</h1>
+      <p class="mt-2 leading-relaxed text-stone-400">Pick a name, hear what’s playing, and add an MP3 when you’ve got one.</p>
+      <form class="mt-7 grid gap-3" id="join-form">
+        <label class="field-label" for="display-name">Your name</label>
+        <input class="field" id="display-name" maxlength="40" autocomplete="nickname" placeholder="What should we call you?" required>
+        <button class="button-primary mt-2" id="enter-room" type="submit">Enter room</button>
+        <p class="min-h-5 text-sm text-rose-300" id="join-error" role="alert"></p>
+      </form>
     </div>
-    <div>
-      <div class="font-bold text-slate-400">Media</div>
-      <div class="mt-1 font-mono" id="media-summary">Waiting for samples</div>
-    </div>
-    <p class="col-span-2 hidden rounded border border-amber-700 bg-amber-950 p-3 text-amber-200 max-[720px]:col-span-1" id="connection-help">
-      A direct WebRTC connection could not be established. Reload both peers and try another network. If this repeats on mobile, corporate Wi-Fi, or strict NAT, this path probably needs TURN.
-    </p>
   </section>
 
-  <% if (it.role === 'dj') { %>
-    <section class="grid gap-5" aria-labelledby="dj-heading">
-      <div class="flex flex-wrap items-center gap-3">
-        <button class="cursor-pointer rounded bg-fuchsia-500 px-4 py-2 font-bold text-slate-950 hover:bg-fuchsia-400" id="start-engine" type="button">Start DJ engine</button>
-        <label class="flex items-center gap-2 text-sm"><input id="monitor-output" type="checkbox" checked> Local monitor</label>
-        <span class="text-sm text-slate-400" id="engine-state">Audio is stopped</span>
-      </div>
+  <div class="mt-8 hidden" id="room-app">
+    <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <p class="text-sm text-stone-400" id="room-note">Waiting for the room…</p>
+      <span class="owner-badge hidden" id="owner-badge">room keeper</span>
+    </div>
 
-      <div class="grid grid-cols-2 gap-4 max-[720px]:grid-cols-1">
-        <% for (const deck of ['A', 'B']) { %>
-          <article class="rounded border border-slate-700 bg-slate-900 p-4">
-            <h2 class="text-xl font-black">Deck <%= deck %></h2>
-            <p class="mt-2 min-h-12 break-all text-sm text-slate-400" id="deck-<%= deck.toLowerCase() %>-name">Empty</p>
-            <input class="mt-3 block w-full text-sm" id="deck-<%= deck.toLowerCase() %>-file" type="file" accept="audio/mpeg,.mp3">
-            <div class="mt-4 flex gap-2">
-              <button class="cursor-pointer rounded bg-slate-100 px-3 py-2 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40" id="deck-<%= deck.toLowerCase() %>-play" type="button" disabled>Play</button>
-              <button class="cursor-pointer rounded border border-slate-600 px-3 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-40" id="deck-<%= deck.toLowerCase() %>-stop" type="button" disabled>Stop</button>
+    <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,0.75fr)]">
+      <div class="grid gap-5">
+        <section class="now-card" aria-labelledby="now-heading">
+          <div class="flex items-center justify-between gap-3">
+            <p class="eyebrow" id="now-heading">Now playing</p>
+            <span class="live-label" id="live-label"><i></i><span>quiet</span></span>
+          </div>
+          <div class="mt-7 grid items-center gap-6 sm:grid-cols-[9rem_minmax(0,1fr)]">
+            <div class="track-art track-art-large" id="now-art" aria-hidden="true"><span>·</span></div>
+            <div class="min-w-0">
+              <h1 class="truncate text-3xl font-black tracking-[-0.045em] text-stone-50 sm:text-4xl" id="now-title">The queue is open</h1>
+              <p class="mt-2 truncate text-lg text-stone-400" id="now-artist">Add the first song from your computer.</p>
+              <p class="mt-5 text-sm text-stone-500" id="now-by">MP3s stay between browsers.</p>
             </div>
-          </article>
-        <% } %>
+          </div>
+          <div class="mt-8">
+            <div class="progress-track"><span id="playback-progress"></span></div>
+            <div class="mt-2 flex justify-between font-mono text-xs text-stone-500">
+              <span id="elapsed-time">0:00</span>
+              <span id="duration-time">—</span>
+            </div>
+          </div>
+          <div class="mt-5 hidden justify-end" id="owner-controls">
+            <button class="button-quiet" id="skip-track" type="button">Skip song</button>
+          </div>
+        </section>
+
+        <section class="panel p-5 sm:p-6" aria-labelledby="queue-heading">
+          <div class="flex items-end justify-between gap-3">
+            <div>
+              <p class="eyebrow">Coming up</p>
+              <h2 class="mt-1 text-2xl font-black tracking-[-0.035em]" id="queue-heading">The queue</h2>
+            </div>
+            <span class="font-mono text-xs text-stone-500" id="queue-count">0 songs</span>
+          </div>
+          <ol class="mt-5 grid gap-2" id="queue-list"></ol>
+          <div class="empty-state mt-5" id="queue-empty">
+            <span class="text-xl" aria-hidden="true">↳</span>
+            <div><strong>Nothing waiting.</strong><br><span>Add the song that should play next.</span></div>
+          </div>
+        </section>
       </div>
 
-      <label class="grid gap-2 rounded border border-slate-700 bg-slate-900 p-4">
-        <span class="flex justify-between font-bold"><span>Deck A</span><span>Crossfader</span><span>Deck B</span></span>
-        <input id="crossfader" type="range" min="-1" max="1" value="-1" step="0.01">
-      </label>
-    </section>
-  <% } else { %>
-    <section class="grid max-w-2xl gap-5" aria-labelledby="guest-heading">
-      <div>
-        <h2 class="text-2xl font-black" id="guest-heading">Contribute a track</h2>
-        <p class="mt-1 text-slate-400">The MP3 goes directly to the DJ over a WebRTC data channel.</p>
-      </div>
-      <input class="block w-full text-sm" id="guest-file" type="file" accept="audio/mpeg,.mp3">
-      <button class="w-fit cursor-pointer rounded bg-fuchsia-500 px-4 py-2 font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40" id="send-track" type="button" disabled>Send to DJ</button>
-      <progress class="h-3 w-full" id="transfer-progress" max="1" value="0"></progress>
-      <p class="text-sm text-slate-400" id="transfer-state">Waiting for the DJ data channel.</p>
+      <aside class="grid gap-5">
+        <section class="panel overflow-hidden" aria-labelledby="add-heading">
+          <div class="p-5 sm:p-6">
+            <p class="eyebrow">From your computer</p>
+            <h2 class="mt-1 text-2xl font-black tracking-[-0.035em]" id="add-heading">Add a song</h2>
+            <p class="mt-2 text-sm leading-relaxed text-stone-400">One in line at a time. The file stays in this tab until it’s your turn.</p>
 
-      <div class="border-t border-slate-700 pt-5">
-        <h2 class="mb-3 text-xl font-black">Live mix</h2>
-        <audio class="w-full" id="live-audio" controls autoplay></audio>
-        <p class="mt-2 text-sm text-slate-400">Press play if your browser blocks autoplay.</p>
-      </div>
-    </section>
-  <% } %>
+            <label class="file-picker mt-5" for="track-file" id="file-picker">
+              <span class="file-picker-icon">+</span>
+              <span><strong>Choose an MP3</strong><small>Up to 150 MB</small></span>
+              <input id="track-file" type="file" accept="audio/mpeg,.mp3">
+            </label>
 
-  <details class="border-t border-slate-700 pt-4">
-    <summary class="cursor-pointer font-bold">Connection log</summary>
-    <pre class="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-black p-3 font-mono text-xs text-emerald-400" id="log"></pre>
-  </details>
+            <form class="mt-5 hidden gap-4" id="track-editor">
+              <div class="grid gap-1.5">
+                <label class="field-label" for="track-title">Title</label>
+                <input class="field" id="track-title" maxlength="120" required>
+              </div>
+              <div class="grid gap-1.5">
+                <label class="field-label" for="track-artist">Artist <span class="font-normal text-stone-600">optional</span></label>
+                <input class="field" id="track-artist" maxlength="120">
+              </div>
+              <div class="flex items-center justify-between gap-3 text-xs text-stone-500">
+                <span class="truncate" id="track-filename"></span>
+                <span class="shrink-0 font-mono" id="track-duration"></span>
+              </div>
+              <button class="button-primary" id="add-track" type="submit">Add to queue</button>
+            </form>
+            <p class="mt-4 min-h-5 text-sm text-stone-400" id="track-status" role="status">Choose something you want the room to hear.</p>
+          </div>
+        </section>
+
+        <section class="panel p-5 sm:p-6" aria-labelledby="people-heading">
+          <div class="flex items-center justify-between gap-3">
+            <h2 class="font-bold" id="people-heading">In the room</h2>
+            <span class="font-mono text-xs text-stone-500" id="people-count">0</span>
+          </div>
+          <ul class="mt-4 flex flex-wrap gap-2" id="people-list"></ul>
+        </section>
+
+        <details class="panel diagnostics p-5">
+          <summary class="cursor-pointer text-sm font-bold text-stone-400">Connection details</summary>
+          <div class="mt-4 grid gap-4 text-xs">
+            <div><strong class="text-stone-500">Direct path</strong><p class="mt-1 font-mono text-stone-300" id="ice-summary">Not connected</p></div>
+            <div><strong class="text-stone-500">Media</strong><p class="mt-1 font-mono text-stone-300" id="media-summary">Waiting for samples</p></div>
+            <p class="hidden rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-amber-200" id="connection-help">A direct connection could not be established. This network may need TURN.</p>
+            <pre class="max-h-40 overflow-auto whitespace-pre-wrap rounded-xl bg-black/30 p-3 font-mono text-[11px] text-lime-200/70" id="log"></pre>
+          </div>
+        </details>
+      </aside>
+    </div>
+  </div>
+
+  <div class="toast hidden" id="toast" role="status"></div>
 </section>

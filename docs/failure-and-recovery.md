@@ -36,7 +36,7 @@ ICE details remain available in the diagnostics panel for troubleshooting.
 
 Initial values should be constants and instrumented rather than scattered through UI code.
 
-- Broadcaster preparation: 10 seconds
+- Broadcaster preparation: 30 seconds
 - Listener connection wait before starting: 2 seconds
 - Playback watchdog grace: 15 seconds beyond declared duration
 - Signaling heartbeat failure: approximately 10–15 seconds

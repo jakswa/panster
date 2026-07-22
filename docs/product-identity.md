@@ -22,7 +22,7 @@ The creator may leave without ending the room. Their private owner link grants m
 ## Product defaults
 
 - One shared first-in, first-out queue
-- At most one queued song per participant initially
+- At most one waiting song per participant, in addition to their currently playing song
 - One current broadcaster
 - One complete song per queue entry
 - Clear stop followed by clear start; no crossfade
@@ -31,7 +31,7 @@ The creator may leave without ending the room. Their private owner link grants m
 - The owner may skip the current song or remove a queue entry
 - The room remains alive while participants are connected and expires after inactivity
 
-One queued song per participant keeps the room social, limits browser memory, and prevents one person from filling the queue. After a participant's song finishes, they may add another.
+One waiting song per participant keeps the room social, limits browser memory, and prevents one person from filling the queue. As soon as a participant's song starts, they may add one more behind it. A sole contributor can therefore keep the room going without filling the queue in advance; normal FIFO order still applies when friends add songs.
 
 ## What the queue displays
 

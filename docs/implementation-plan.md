@@ -6,14 +6,14 @@ Replace the permanent creator-host topology with a server-authoritative shared q
 
 Keep each phase testable with real browsers. Do not add crossfading, PostgreSQL, AI, or multi-machine support during this plan.
 
-## Phase 1: room participants and metadata queue
+## Phase 1: room participants and metadata queue — implemented
 
 Build the social and state layer before changing the working media plane.
 
 ### Server
 
 - Add participant display names to in-memory room state.
-- Add validated queue entries and one-entry-per-participant enforcement.
+- Add validated queue entries and one-waiting-entry-per-participant enforcement.
 - Extend the WebSocket protocol beyond SDP/ICE with typed room events.
 - Send a complete room snapshot on join.
 - Broadcast participant and queue changes.
@@ -34,7 +34,7 @@ Build the social and state layer before changing the working media plane.
 
 With three browser pages, all see the same participant list and queue order. Metadata looks useful for tagged and untagged MP3s. Disconnecting a queued participant removes their entry. No file bytes reach the server.
 
-## Phase 2: current-broadcaster abstraction
+## Phase 2: current-broadcaster abstraction — implemented
 
 Replace `role=dj` media authority with server assignment.
 
@@ -60,7 +60,7 @@ Replace `role=dj` media authority with server assignment.
 
 A queues song A, B queues song B, and C listens. A broadcasts to B and C. At the end, connections move to B and song B starts. Network inspection confirms no MP3 or live audio passes through Fly.io.
 
-## Phase 3: owner-independent survival
+## Phase 3: owner-independent survival — implemented
 
 ### Work
 
@@ -75,7 +75,7 @@ A queues song A, B queues song B, and C listens. A broadcasts to B and C. At the
 
 A creates the room; B and C enqueue tracks. While B is playing, A closes their browser. B finishes and C starts. If B closes mid-song, C is promoted without recreating the room.
 
-## Phase 4: reliability and diagnostics
+## Phase 4: reliability and diagnostics — in progress
 
 ### Work
 
@@ -94,7 +94,7 @@ A creates the room; B and C enqueue tracks. While B is playing, A closes their b
 - Error messages identify whose song failed and what Panster did next.
 - No tab grows memory without bound across repeated songs.
 
-## Phase 5: deployment-state decision
+## Phase 5: deployment-state decision — deferred
 
 Only after the single-machine shared queue works:
 

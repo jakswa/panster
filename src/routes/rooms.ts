@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import {
-  canJoinAsDj,
+  canJoinAsOwner,
   createRoom,
   getRoom,
   RoomCapacityError,
@@ -21,7 +21,7 @@ roomRoutes.post('/rooms', (c) => {
   try {
     const room = createRoom()
     return c.redirect(
-      `/rooms/${room.id}?role=dj&token=${encodeURIComponent(room.djToken)}`,
+      `/rooms/${room.id}?owner=${encodeURIComponent(room.ownerToken)}`,
       303,
     )
   } catch (error) {
@@ -44,20 +44,19 @@ roomRoutes.get('/rooms/:roomId', (c) => {
   const room = getRoom(roomId)
   if (!room) return c.notFound()
 
-  const requestedDj = c.req.query('role') === 'dj'
-  const token = c.req.query('token')
-  if (requestedDj && !canJoinAsDj(roomId, token)) {
-    return c.text('Invalid DJ link', 403)
+  // Accept the prototype's old private DJ URL until existing links expire.
+  const token = c.req.query('owner') ??
+    (c.req.query('role') === 'dj' ? c.req.query('token') : undefined)
+  if (token && !canJoinAsOwner(roomId, token)) {
+    return c.text('Invalid owner link', 403)
   }
 
-  const role = requestedDj ? 'dj' : 'guest'
   touchRoom(roomId)
   c.header('Cache-Control', 'private, no-store')
   return c.var.render('room', {
-    title: `Panster room ${roomId}`,
+    title: `Panster · ${roomId}`,
     roomId,
-    role,
-    djToken: role === 'dj' ? token : '',
+    ownerToken: token ?? '',
   })
 })
 
