@@ -1,6 +1,6 @@
 # Panster planning
 
-These documents describe Panster's shared-queue product direction and the work growing out of the original media-plane prototype.
+These documents describe Panster's shared-queue direction.
 
 ## Core decision
 
