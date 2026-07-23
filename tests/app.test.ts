@@ -184,6 +184,19 @@ describe('Panster HTTP app', () => {
     expect(script).not.toContain('test-turn-shared-secret')
   })
 
+  test('offers recovery when a temporary room is gone', async () => {
+    const res = await app.request('/rooms/STALE1')
+    const html = await res.text()
+
+    expect(res.status).toBe(404)
+    expect(res.headers.get('cache-control')).toBe('private, no-store')
+    expect(html).toContain('Room STALE1 is gone')
+    expect(html).toContain('Rooms are temporary')
+    expect(html).toContain('<form method="post" action="/rooms">')
+    expect(html).toContain('Start a new room')
+    expect(html).not.toContain('Page not found')
+  })
+
   test('rejects malformed room IDs', async () => {
     const res = await app.request('/rooms/not-valid')
     expect(res.status).toBe(404)

@@ -91,7 +91,16 @@ roomRoutes.get('/rooms/:roomId/ice-servers', (c) => {
 roomRoutes.get('/rooms/:roomId', (c) => {
   const roomId = c.req.param('roomId').toUpperCase()
   const room = getRoom(roomId)
-  if (!room) return c.notFound()
+  if (!room) {
+    if (!/^[A-Z0-9]{6}$/.test(roomId)) return c.notFound()
+
+    c.status(404)
+    c.header('Cache-Control', 'private, no-store')
+    return c.var.render('room-not-found', {
+      title: `Room ${roomId} is gone · Panster`,
+      roomId,
+    })
+  }
 
   // Accept the prototype's old private DJ URL until existing links expire.
   const token = c.req.query('owner') ??

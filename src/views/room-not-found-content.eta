@@ -1,0 +1,24 @@
+<section class="flex min-h-[calc(100vh-4rem)] flex-col">
+  <header class="flex items-center justify-between border-b border-white/10 pb-5">
+    <a class="flex items-center gap-3" href="/">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span class="text-lg font-black tracking-[-0.03em] text-stone-100">panster</span>
+    </a>
+    <span class="font-mono text-xs text-stone-600">room <%= it.roomId %></span>
+  </header>
+
+  <div class="my-auto max-w-2xl py-16 sm:py-24">
+    <p class="eyebrow">That party ended</p>
+    <h1 class="mt-5 text-5xl font-black leading-[0.95] tracking-[-0.06em] text-stone-50 sm:text-7xl">Room <span class="text-lime-300"><%= it.roomId %></span> is gone.</h1>
+    <p class="mt-7 max-w-xl text-lg leading-relaxed text-stone-400">Rooms are temporary and disappear after a period of inactivity or whenever Panster restarts. An old room can’t be restored, but starting over only takes a click.</p>
+
+    <div class="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
+      <form method="post" action="/rooms">
+        <button class="button-primary button-large w-full sm:w-auto" type="submit">Start a new room <span aria-hidden="true">→</span></button>
+      </form>
+      <a class="button-secondary button-large" href="/">Enter another code</a>
+    </div>
+  </div>
+
+  <footer class="border-t border-white/10 py-5 text-xs leading-relaxed text-stone-600">Your music was never uploaded. The room only coordinated playback between browsers.</footer>
+</section>
